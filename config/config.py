@@ -11,6 +11,11 @@ class Config:
     # Gemini (Generative AI)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+    # Library of Congress 
+    LOC_API_KEY = os.getenv('LOC_API_KEY')
+    LOC_API_BASE = os.getenv('LOC_API_BASE', 'https://www.loc.gov/books/')
+
+
     # Processing Settings
     IMAGE_MAX_SIZE = (1024, 1024)
     CONFIDENCE_THRESHOLD = 0.7
