@@ -1,0 +1,47 @@
+# Python virtual environment
+venv/
+.Python
+
+# Environment variables
+.env
+
+# API credentials and sensitive files
+config/google-vision-credentials.json
+*.json
+
+# Data directories
+data/raw_images/*
+data/processed/*
+data/metadata/*
+!data/raw_images/.gitkeep
+!data/processed/.gitkeep
+!data/metadata/.gitkeep
+
+# Bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+*.egg
+.installed.cfg
+
+# Test output
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# IDE/editor configs
+.vscode/
+.idea/
+*.swo
+*.swp
