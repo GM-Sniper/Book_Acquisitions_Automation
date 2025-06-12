@@ -20,11 +20,11 @@ def test_with_your_book_images():
     
     try:
         client = vision.ImageAnnotatorClient()
-        print("✅ Google Vision client initialized successfully")
+        print("Google Vision client initialized successfully")
         
         for image_path in test_images:
             if os.path.exists(image_path):
-                print(f"\n📚 Processing: {image_path}")
+                print(f"\nProcessing: {image_path}")
                 
                 # Load and process image
                 with io.open(image_path, 'rb') as image_file:
@@ -36,33 +36,33 @@ def test_with_your_book_images():
                 response = client.document_text_detection(image=image)
                 
                 if response.error.message:
-                    print(f"❌ Error: {response.error.message}")
+                    print(f"Error: {response.error.message}")
                     continue
                 
                 if response.full_text_annotation:
                     text = response.full_text_annotation.text
-                    print(f"✅ Text extracted ({len(text)} characters)")
+                    print(f"Text extracted ({len(text)} characters)")
                     print(f"Preview: {text[:200]}...")
                     
                     # Test ISBN extraction
                     isbn = extract_isbn(text)
                     if isbn:
-                        print(f"📚 Found ISBN: {isbn}")
+                        print(f"Found ISBN: {isbn}")
                     else:
-                        print("⚠️ No ISBN detected")
+                        print("No ISBN detected")
                     
                     # Test for specific book information
                     analyze_book_content(text, image_path)
                     
                 else:
-                    print("⚠️ No text detected")
+                    print("No text detected")
             else:
-                print(f"❌ Image not found: {image_path}")
+                print(f"Image not found: {image_path}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Test failed: {str(e)}")
+        print(f"Test failed: {str(e)}")
         return False
 
 def extract_isbn(text):
@@ -87,24 +87,24 @@ def analyze_book_content(text, image_path):
     """Analyze extracted text for book-specific information"""
     
     if "book1" in image_path:
-        # Arabic book analysis
-        if "الجريمة الكاملة" in text:
-            print("✅ Arabic title detected: الجريمة الكاملة")
-        if "أغر الجمال" in text:
-            print("✅ Arabic author detected: أغر الجمال")
-        if any(word in text for word in ["رواية", "الطبعة"]):
-            print("✅ Arabic book metadata detected")
+        # Physics book analysis (book1 is actually the physics book)
+        if "Modern Physics" in text:
+            print("English title detected: Modern Physics for Scientists and Engineers")
+        if "Stephen" in text and "Thornton" in text:
+            print("Authors detected: Stephen T. Thornton")
+        if "4th edition" in text or "International Edition" in text:
+            print("Edition information detected")
+        if "BROOKS/COLE" in text or "CENGAGE" in text or "Cengage" in text:
+            print("Publisher detected")
     
     elif "book2" in image_path:
-        # Physics book analysis
-        if "Modern Physics" in text:
-            print("✅ English title detected: Modern Physics for Scientists and Engineers")
-        if "Stephen" in text and "Thornton" in text:
-            print("✅ Authors detected: Stephen T. Thornton")
-        if "4th edition" in text or "International Edition" in text:
-            print("✅ Edition information detected")
-        if "BROOKS/COLE" in text or "CENGAGE" in text:
-            print("✅ Publisher detected")
+        # Arabic book analysis (book2 is actually the Arabic book)
+        if "الجريمة الكاملة" in text:
+            print("Arabic title detected: الجريمة الكاملة")
+        if "أغر الجمال" in text or "أغر الجمّال" in text:
+            print("Arabic author detected: أغر الجمال")
+        if any(word in text for word in ["رواية", "الطبعة"]):
+            print("Arabic book metadata detected")
 
 def test_specific_challenges():
     """Test specific challenges your project will face"""
@@ -122,7 +122,7 @@ def test_specific_challenges():
     
     for challenge, image_path in challenges.items():
         if os.path.exists(image_path):
-            print(f"\n🧪 Testing {challenge}: {os.path.basename(image_path)}")
+            print(f"\nTesting {challenge}: {os.path.basename(image_path)}")
             
             try:
                 with io.open(image_path, 'rb') as image_file:
@@ -134,12 +134,12 @@ def test_specific_challenges():
                 if response.full_text_annotation:
                     text = response.full_text_annotation.text
                     confidence = len([word for word in text.split() if len(word) > 2])
-                    print(f"✅ {challenge} processed - {confidence} meaningful words detected")
+                    print(f"{challenge} processed - {confidence} meaningful words detected")
                 else:
-                    print(f"⚠️ {challenge} - No text detected")
+                    print(f"{challenge} - No text detected")
                     
             except Exception as e:
-                print(f"❌ {challenge} failed: {e}")
+                print(f"{challenge} failed: {e}")
 
 if __name__ == "__main__":
     print("=== Testing Google Vision API with Your Book Images ===")
@@ -151,18 +151,6 @@ if __name__ == "__main__":
         # Test specific project challenges
         test_specific_challenges()
         
-        print("\n🎉 Google Vision API testing completed!")
-        print("\n📋 Summary for your Week 1 plan:")
-        print("✅ Arabic text detection working")
-        print("✅ English text detection working") 
-        print("✅ ISBN extraction from back covers")
-        print("✅ Complex layout handling")
-        print("✅ Ready for metadata enhancement with Gemini")
-        
-        print("\n🔄 Next steps:")
-        print("1. Test Gemini API with extracted text")
-        print("2. Implement metadata normalization")
-        print("3. Test Library of Congress API integration")
-        print("4. Build duplicate detection logic")
+        print("\nGoogle Vision API testing completed!")
     else:
-        print("\n💥 Fix Google Vision API issues before proceeding")
+        print("\nFix Google Vision API issues before proceeding")

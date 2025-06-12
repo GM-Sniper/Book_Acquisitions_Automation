@@ -113,52 +113,6 @@ def create_test_image():
         print(f"⚠️ Could not create test image: {e}")
         return None
 
-def test_with_real_book_image():
-    """Test with a real book image if available"""
-    
-    # Check if there's a test image in your data folder
-    test_image_paths = [
-        "data/raw_images/bookcover.jpg",
-        "data/images/bookcover.jpg", 
-        "test_book.jpg"
-    ]
-    
-    for image_path in test_image_paths:
-        if os.path.exists(image_path):
-            print(f"\n📖 Testing with real book image: {image_path}")
-            
-            try:
-                client = vision.ImageAnnotatorClient()
-                
-                with io.open(image_path, 'rb') as image_file:
-                    content = image_file.read()
-                
-                image = vision.Image(content=content)
-                response = client.document_text_detection(image=image)
-                
-                if response.full_text_annotation:
-                    text = response.full_text_annotation.text
-                    print("✅ Real book image processing successful!")
-                    print(f"Extracted text ({len(text)} chars): {text[:300]}...")
-                    
-                    # Try to find ISBN
-                    import re
-                    isbn_pattern = r'ISBN[:\-\s]*([0-9\-X]{10,17})'
-                    isbn_match = re.search(isbn_pattern, text, re.IGNORECASE)
-                    if isbn_match:
-                        print(f"📚 Found ISBN: {isbn_match.group(1)}")
-                    
-                    return True
-                else:
-                    print("⚠️ No text detected in real book image")
-                    
-            except Exception as e:
-                print(f"❌ Error processing real book image: {e}")
-    
-    print("ℹ️ No real book images found for testing")
-    print("Add a book cover image to data/raw_images/bookcover.jpg to test with real data")
-    return False
-
 if __name__ == "__main__":
     print("=== Google Vision API Test ===")
     
@@ -171,10 +125,6 @@ if __name__ == "__main__":
         
         print("\n🎉 Google Vision API tests completed!")
         print("Your Google Vision integration is ready for the book processing pipeline.")
-        print("\nNext steps:")
-        print("1. Add real book cover images to data/raw_images/")
-        print("2. Test the image preprocessing pipeline from your Week 1 plan")
-        print("3. Integrate with your ISBN extraction module")
     else:
         print("\n💥 Google Vision API test failed.")
         print("Check your credentials and API configuration.")

@@ -1,0 +1,77 @@
+=== Testing Google Vision API with Your Book Images ===
+Google Vision client initialized successfully
+
+Processing: data/raw_images/book1_front.jpg
+Text extracted (150 characters)
+Preview: 08/2303
+27/03
+MD-2204
+MIV-2/1/564
+4th edition
+Modern
+Physics for
+Scientists
+and
+Engineers
+Stephen T. Thornton
+Andrew Rex
+S
+International
+Edition
+E
+G
+N...
+No ISBN detected
+Authors detected: Stephen T. Thornton
+Edition information detected
+
+Processing: data/raw_images/book1_back.jpg
+Text extracted (1116 characters)
+Preview: International
+Edition
+Thank you for choosing a Cengage Learning
+International Edition. Cengage Learning's mission
+is to shape the future of global learning by
+delivering consistently better learning s...
+Found ISBN: 9781133111863
+Edition information detected
+Publisher detected
+
+Processing: data/raw_images/book2_front.jpg
+Text extracted (48 characters)
+Preview: الجريمة الكاملة
+الطبعة 5 -
+رواية
+د . أغر الجمّال...
+No ISBN detected
+Arabic title detected: الجريمة الكاملة
+Arabic author detected: أغر الجمال
+Arabic book metadata detected
+
+Processing: data/raw_images/book2_back.jpg
+Text extracted (634 characters)
+Preview: الجريمة الكاملة
+رسالة بريد من امرأة تدعى "محبحة الشناوى
+ان المباحث "محمود" ، تخيره فيها بتخطيطها لارتكاب جريمة
+يتم فيها مثلها، وتحداه أن يعرف الجاني.
+لية محمود رسالة وهمية كالتي يرسلها بعض السفهاء
+ولك...
+Found ISBN: 9789777861687
+Arabic title detected: الجريمة الكاملة
+Arabic author detected: أغر الجمال
+
+=== Testing Project-Specific Challenges ===
+
+Testing Arabic Text: book1_front.jpg
+Arabic Text processed - 18 meaningful words detected
+
+Testing ISBN on Back Cover: book2_back.jpg
+ISBN on Back Cover processed - 94 meaningful words detected
+
+Testing Complex Layout: book2_front.jpg
+Complex Layout processed - 6 meaningful words detected
+
+Testing Plastic Wrap/Glare: book1_back.jpg
+Plastic Wrap/Glare processed - 135 meaningful words detected
+
+Google Vision API testing completed!
