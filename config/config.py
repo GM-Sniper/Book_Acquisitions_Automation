@@ -12,8 +12,8 @@ class Config:
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
     # Library of Congress 
-    LOC_API_KEY = os.getenv('LOC_API_KEY')
-    LOC_API_BASE = os.getenv('LOC_API_BASE', 'https://www.loc.gov/books/')
+    LOC_API_BASE_URL = os.getenv('LOC_API_BASE_URL')
+    LOC_SRU_BASE_URL = os.getenv('LOC_SRU_BASE_URL')
 
 
     # Processing Settings
