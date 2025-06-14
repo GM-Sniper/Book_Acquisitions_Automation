@@ -11,9 +11,14 @@ class Config:
     # Gemini (Generative AI)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-    # Library of Congress 
-    LOC_API_BASE_URL = os.getenv('LOC_API_BASE_URL')
-    LOC_SRU_BASE_URL = os.getenv('LOC_SRU_BASE_URL')
+   # Library of Congress APIs only
+    LOC_LCCN_BASE_URL = os.getenv('LOC_LCCN_BASE_URL', 'http://lccn.loc.gov')
+    LOC_SRU_BASE_URL = os.getenv('LOC_SRU_BASE_URL', 'http://lx2.loc.gov:210/lcdb')
+    
+    # Request settings
+    REQUEST_DELAY = int(os.getenv('REQUEST_DELAY', 3))
+    MAX_RETRIES = int(os.getenv('MAX_RETRIES', 3))
+    TIMEOUT = int(os.getenv('TIMEOUT', 15))
 
 
     # Processing Settings
