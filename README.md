@@ -34,3 +34,13 @@ You should now see `(venv)` in your terminal.
 pip install -r requirements.txt --upgrade
 ```
 ---
+
+### 4. Run the Streamlit App
+
+Make sure you are in the project root directory and your virtual environment is activated. Then run:
+
+```bash
+streamlit run src/UI/app.py
+```
+
+This will launch the web app in your browser for uploading and preprocessing book cover images.
