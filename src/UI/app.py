@@ -9,6 +9,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.vision.preprocessing import preprocess_image
+from src.vision.OCR_Processing import extract_text_from_image
+from src.metadata.metadata_extraction import extract_metadata_with_gemini
+from src.utils.isbn_detection import extract_isbns
 
 # Utility function to save preprocessed image
 def save_preprocessed_image(image_np, original_filename, output_dir='data/processed'):
@@ -19,7 +22,7 @@ def save_preprocessed_image(image_np, original_filename, output_dir='data/proces
     return out_path
 
 # Title of the app
-st.title('Book Cover OCR Preprocessing Demo')
+st.title('Book Cover OCR Proof of Concept')
 
 # --- Section: Upload image(s) ---
 st.header('Step 1: Upload Book Cover Images')
@@ -28,6 +31,11 @@ front_file = st.file_uploader('Front Cover Image', type=['jpg', 'jpeg', 'png'], 
 
 st.write('Now upload the **back cover** image of the book.')
 back_file = st.file_uploader('Back Cover Image', type=['jpg', 'jpeg', 'png'], key='back')
+
+front_text = None
+back_text = None
+metadata = None
+isbns = None
 
 if front_file:
     st.subheader('Front Cover: Original')
@@ -39,6 +47,17 @@ if front_file:
     # Save preprocessed image
     saved_path = save_preprocessed_image(preprocessed_front, front_file.name)
     st.success(f'Preprocessed front cover saved to: {saved_path}')
+    # OCR
+    front_text = extract_text_from_image(preprocessed_front)
+    st.subheader('Extracted Text (Front Cover)')
+    st.text_area('Front Cover OCR Text', front_text, height=150)
+    # Metadata extraction
+    metadata = extract_metadata_with_gemini(front_text)
+    if metadata:
+        st.subheader('Extracted Metadata (Front Cover)')
+        st.json(metadata)
+    else:
+        st.warning('No metadata (title/author) found in front cover text.')
 
 if back_file:
     st.subheader('Back Cover: Original')
@@ -50,12 +69,16 @@ if back_file:
     # Save preprocessed image
     saved_path = save_preprocessed_image(preprocessed_back, back_file.name)
     st.success(f'Preprocessed back cover saved to: {saved_path}')
+    # OCR
+    back_text = extract_text_from_image(preprocessed_back)
+    st.subheader('Extracted Text (Back Cover)')
+    st.text_area('Back Cover OCR Text', back_text, height=150)
+    # ISBN extraction
+    isbns = extract_isbns(back_text)
+    if isbns and (isbns['isbn10'] or isbns['isbn13']):
+        st.subheader('Extracted ISBNs (Back Cover)')
+        st.json(isbns)
+    else:
+        st.warning('No ISBNs found in back cover text.')
 
-st.header('Next Steps')
-
-# --- Section: Capture image from webcam ---
-st.header('Or Capture Image from Webcam')
-captured_image = st.camera_input('Take a picture with your webcam')
-if captured_image is not None:
-    st.write("Captured Image:")
-    st.image(captured_image, caption="Captured Image")
+st.header('Proof of Concept Complete')
