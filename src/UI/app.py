@@ -10,7 +10,7 @@ if project_root not in sys.path:
 
 from src.vision.preprocessing import preprocess_image
 from src.vision.OCR_Processing import extract_text_from_image
-from src.metadata.metadata_extraction import extract_metadata_with_gemini
+from src.metadata.metadata_extraction import extract_metadata_with_gemini, metadata_combiner
 from src.utils.isbn_detection import extract_isbns
 
 # Utility function to save preprocessed image
@@ -36,6 +36,7 @@ front_text = None
 back_text = None
 metadata = None
 isbns = None
+combined_metadata = None
 
 if front_file:
     st.subheader('Front Cover: Original')
@@ -80,5 +81,20 @@ if back_file:
         st.json(isbns)
     else:
         st.warning('No ISBNs found in back cover text.')
+
+# Combine and display final result if both are available
+if metadata and isbns:
+    # Flatten ISBNs to a list (if extract_isbns returns dict)
+    isbn_list = []
+    if isinstance(isbns, dict):
+        if isbns.get('isbn10'):
+            isbn_list.append(isbns['isbn10'])
+        if isbns.get('isbn13'):
+            isbn_list.append(isbns['isbn13'])
+    elif isinstance(isbns, list):
+        isbn_list = isbns
+    combined_metadata = metadata_combiner(metadata, isbn_list)
+    st.header('Final Combined Metadata (Front + Back)')
+    st.json(combined_metadata)
 
 st.header('Proof of Concept Complete')

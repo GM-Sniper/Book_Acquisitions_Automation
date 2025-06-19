@@ -45,7 +45,7 @@ def threshold(img):
 def denoise(img):
     """Denoise image using fastNlMeansDenoising if grayscale, or fastNlMeansDenoisingColored if color."""
     if len(img.shape) == 2:
-        return cv2.fastNlMeansDenoising(img, None, 30, 7, 21)
+        return cv2.fastNlMeansDenoising(img, None, 21, 7, 21)
     else:
         return cv2.fastNlMeansDenoisingColored(img, None, 30, 30, 7, 21)
 

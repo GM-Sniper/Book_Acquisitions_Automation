@@ -49,4 +49,19 @@ def extract_metadata_with_gemini(ocr_text):
         return extract_json_from_text(response.text)
     except Exception as e:
         print(f"Gemini metadata extraction failed: {e}")
-        return None 
+        return None
+
+def metadata_combiner(front_metadata, isbns):
+    """
+    Combines front cover metadata and ISBNs into a single dict.
+    Args:
+        front_metadata (dict): Should have 'title' and 'authors' keys.
+        isbns (list): List of ISBN strings.
+    Returns:
+        dict: Combined metadata with 'title', 'authors', and 'isbns'.
+    """
+    return {
+        "title": front_metadata.get("title"),
+        "authors": front_metadata.get("authors"),
+        "isbns": isbns
+    } 
