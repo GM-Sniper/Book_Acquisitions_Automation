@@ -17,7 +17,7 @@ def preprocess_image(image_bytes, steps=None):
 
     # Default preprocessing steps
     if steps is None:
-        steps = [to_grayscale, threshold, denoise]
+        steps = [to_grayscale, enhance_contrast, threshold, denoise]
 
     for step in steps:
         img = step(img)
@@ -27,6 +27,18 @@ def preprocess_image(image_bytes, steps=None):
 def to_grayscale(img):
     """Convert image to grayscale."""
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+def enhance_contrast(img):
+    """Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)."""
+    if len(img.shape) == 2:  # Grayscale
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        return clahe.apply(img)
+    else:  # Color image
+        # Convert to LAB color space
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        lab[:,:,0] = clahe.apply(lab[:,:,0])
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
 # def resize(img, width=800):
 #     """Resize image to a given width, maintaining aspect ratio."""
