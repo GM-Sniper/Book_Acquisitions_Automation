@@ -52,9 +52,9 @@ def process_image(image_input, image_name, image_type="cover"):
     with st.spinner('Extracting text with confidence scoring...'):
         if use_enhanced_ocr:
             # Use enhanced OCR with confidence
-            # Save image temporarily
+            # Save preprocessed image temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
-                tmp_file.write(image_content)
+                cv2.imwrite(tmp_file.name, preprocessed_image)  # Use preprocessed image
                 tmp_file_path = tmp_file.name
             
             try:

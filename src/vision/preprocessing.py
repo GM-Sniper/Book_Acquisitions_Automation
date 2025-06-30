@@ -15,9 +15,9 @@ def preprocess_image(image_bytes, steps=None):
     file_bytes = np.asarray(bytearray(image_bytes), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # Default preprocessing steps
+    # Default preprocessing steps - OCR optimized
     if steps is None:
-        steps = [to_grayscale, enhance_contrast, threshold, denoise]
+        steps = [to_grayscale, enhance_contrast, denoise]
 
     for step in steps:
         img = step(img)
@@ -28,8 +28,28 @@ def to_grayscale(img):
     """Convert image to grayscale."""
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+def enhance_contrast_gentle(img):
+    """Enhance contrast using CLAHE with gentler parameters for better OCR."""
+    if len(img.shape) == 2:  # Grayscale
+        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8,8))  # Gentler clipLimit
+        return clahe.apply(img)
+    else:  # Color image
+        # Convert to LAB color space
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8,8))  # Gentler clipLimit
+        lab[:,:,0] = clahe.apply(lab[:,:,0])
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+def optional_denoise(img):
+    """Light denoising that preserves text details."""
+    if len(img.shape) == 2:  # Grayscale
+        return cv2.fastNlMeansDenoising(img, None, 10, 7, 21)  # Gentler parameters
+    else:
+        return cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)  # Gentler parameters
+
+# --- Legacy functions (kept for compatibility) ---
 def enhance_contrast(img):
-    """Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)."""
+    """Original CLAHE enhancement (more aggressive)."""
     if len(img.shape) == 2:  # Grayscale
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         return clahe.apply(img)
@@ -40,14 +60,6 @@ def enhance_contrast(img):
         lab[:,:,0] = clahe.apply(lab[:,:,0])
         return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-# def resize(img, width=800):
-#     """Resize image to a given width, maintaining aspect ratio."""
-#     h, w = img.shape[:2]
-#     if w == width:
-#         return img
-#     scale = width / w
-#     return cv2.resize(img, (width, int(h * scale)), interpolation=cv2.INTER_AREA)
-
 def threshold(img):
     """Apply adaptive thresholding to binarize the image."""
     return cv2.adaptiveThreshold(
@@ -55,7 +67,7 @@ def threshold(img):
     ) if len(img.shape) == 2 else img
 
 def denoise(img):
-    """Denoise image using fastNlMeansDenoising if grayscale, or fastNlMeansDenoisingColored if color."""
+    """Original denoising (more aggressive)."""
     if len(img.shape) == 2:
         return cv2.fastNlMeansDenoising(img, None, 21, 7, 21)
     else:
