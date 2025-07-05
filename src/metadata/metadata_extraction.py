@@ -42,7 +42,7 @@ def extract_metadata_with_gemini(ocr_text):
     '''
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         # Use the robust JSON extraction
