@@ -4,6 +4,7 @@ import os
 import cv2
 import time
 import tempfile
+import difflib
 
 # Add the project root folder to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -16,18 +17,25 @@ from src.metadata.metadata_extraction import extract_metadata_with_gemini, metad
 from src.utils.isbn_detection import extract_isbns, extract_and_validate_isbns
 from src.utils.google_books import search_book_by_isbn, search_book_by_title_author, extract_book_metadata
 from src.utils.openlibrary import OpenLibraryAPI
+from src.utils.LOC import LOCConverter
 
 # Helper function to unify metadata from Google Books and OpenLibrary
 
-def get_unified_metadata(title, authors, isbns):
+def fuzzy_match(a, b):
+    """Return a similarity ratio between two strings (0-1) using difflib."""
+    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+def get_unified_metadata(title, authors, isbns, lccns=None):
     """
     Query Google Books and OpenLibrary and return unified metadata fields.
+    lccns: optional, a list or string of LCCNs to use for the 'LC no.' field.
     Returns a dict with keys: TITLE, AUTHOR, PUBLISHED, D.O Pub., OCLC no., LC no., ISBN
     """
     gb_data = None
     ol_data = None
     api = OpenLibraryAPI()
     # Prefer ISBN search if available
+    found_by_isbn = False
     if isbns:
         for isbn in isbns:
             # Google Books
@@ -35,38 +43,77 @@ def get_unified_metadata(title, authors, isbns):
                 gb_result = search_book_by_isbn(isbn)
                 if gb_result and gb_result.get('items'):
                     gb_data = extract_book_metadata(gb_result)
-                    break
+                    # Only use if ISBN matches exactly
+                    if gb_data.get('isbn') and isbn in gb_data['isbn']:
+                        found_by_isbn = True
+                        break
+                    else:
+                        gb_data = None
             except Exception as e:
                 pass
             # OpenLibrary
             try:
                 ol_data = api.search_by_isbn(isbn)
-                if ol_data:
+                if ol_data and ol_data.get('isbn') and isbn in ol_data['isbn']:
+                    found_by_isbn = True
                     break
+                else:
+                    ol_data = None
             except Exception as e:
                 pass
-    # If no ISBN or not found, use title/author
-    if not gb_data and title:
+    # Fallback: search by title/author if no ISBN match
+    found_by_fallback = False
+    fallback_gb = None
+    fallback_ol = None
+    if not found_by_isbn and title:
         try:
             gb_result = search_book_by_title_author(title, authors)
             if gb_result and gb_result.get('items'):
-                gb_data = extract_book_metadata(gb_result)
+                candidate = extract_book_metadata(gb_result)
+                # Fuzzy match title and author
+                title_ratio = fuzzy_match(candidate.get('title', ''), title)
+                author_ratio = fuzzy_match(candidate.get('author', ''), ', '.join(authors) if authors else '')
+                if title_ratio >= 0.9 and author_ratio >= 0.9:
+                    fallback_gb = candidate
+                    found_by_fallback = True
         except Exception as e:
             pass
-    if not ol_data and title:
+    if not found_by_isbn and not found_by_fallback and title:
         try:
-            ol_data = api.search_by_title_author(title, authors)
+            ol_candidate = api.search_by_title_author(title, authors)
+            if ol_candidate:
+                title_ratio = fuzzy_match(ol_candidate.get('title', ''), title)
+                author_ratio = fuzzy_match(ol_candidate.get('author', ''), ', '.join(authors) if authors else '')
+                if title_ratio >= 0.9 and author_ratio >= 0.9:
+                    fallback_ol = ol_candidate
+                    found_by_fallback = True
         except Exception as e:
             pass
     # Compose unified result
+    if isinstance(lccns, list):
+        lccn_str = '; '.join([l for l in lccns if l])
+    elif isinstance(lccns, str):
+        lccn_str = lccns
+    else:
+        lccn_str = ''
+    # Decide which data to use
+    if found_by_isbn:
+        use_gb = gb_data if gb_data else None
+        use_ol = ol_data if ol_data else None
+    elif found_by_fallback:
+        use_gb = fallback_gb if fallback_gb else None
+        use_ol = fallback_ol if fallback_ol else None
+    else:
+        use_gb = None
+        use_ol = None
     unified = {
-        'TITLE': gb_data['title'] if gb_data and gb_data.get('title') else (ol_data['title'] if ol_data else title),
-        'AUTHOR': gb_data['author'] if gb_data and gb_data.get('author') else (ol_data['author'] if ol_data else ', '.join(authors) if authors else ''),
-        'PUBLISHED': gb_data['publisher'] if gb_data and gb_data.get('publisher') else (ol_data['publisher'] if ol_data else ''),
-        'D.O Pub.': gb_data['published_date'] if gb_data and gb_data.get('published_date') else (ol_data['published_date'] if ol_data else ''),
-        'OCLC no.': ol_data['oclc_no'] if ol_data and 'oclc_no' in ol_data else '',
-        'LC no.': ol_data['lc_no'] if ol_data and 'lc_no' in ol_data else '',
-        'ISBN': gb_data['isbn'] if gb_data and gb_data.get('isbn') else (ol_data['isbn'] if ol_data else '; '.join(isbns) if isbns else ''),
+        'TITLE': use_gb['title'] if use_gb and use_gb.get('title') else (use_ol['title'] if use_ol else title),
+        'AUTHOR': use_gb['author'] if use_gb and use_gb.get('author') else (use_ol['author'] if use_ol else ', '.join(authors) if authors else ''),
+        'PUBLISHED': use_gb['publisher'] if use_gb and use_gb.get('publisher') else (use_ol['publisher'] if use_ol else ''),
+        'D.O Pub.': use_gb['published_date'] if use_gb and use_gb.get('published_date') else (use_ol['published_date'] if use_ol else ''),
+        'OCLC no.': use_ol['oclc_no'] if use_ol and 'oclc_no' in use_ol else '',
+        'LC no.': lccn_str,
+        'ISBN': use_gb['isbn'] if use_gb and use_gb.get('isbn') else (use_ol['isbn'] if use_ol else '; '.join(isbns) if isbns else ''),
     }
     return unified
 
@@ -301,11 +348,23 @@ if both_images_ready:
                     isbn_list.extend(isbns['isbn13'])
             elif isinstance(isbns, list):
                 isbn_list = isbns
-        # Use extracted metadata fields
-        title = metadata.get('title', '')
-        authors = metadata.get('authors', [])
-        unified = get_unified_metadata(title, authors, isbn_list)
-        st.header('📚 Unified Book Metadata (Google Books + OpenLibrary)')
+        
+        # Get LOC LCCN data
+        loc_results = {}
+        if isbn_list:
+            with st.spinner('Querying Library of Congress for LCCN numbers...'):
+                loc_converter = LOCConverter()
+                loc_results = loc_converter.get_lccn_for_isbns(isbn_list)
+        
+        # Get all found LCCNs as a list
+        lccn_list = [lccn for lccn in loc_results.values() if lccn] if loc_results else []
+        unified = get_unified_metadata(
+            metadata.get('title', ''),
+            metadata.get('authors', []),
+            isbn_list,
+            lccns=lccn_list
+        )
+        st.header('📚 Unified Book Metadata (Google Books + OpenLibrary + LOC)')
         st.table([unified])
 
     # Performance metrics
