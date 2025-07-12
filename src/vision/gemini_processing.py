@@ -76,15 +76,6 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
     
     # Define prompts based on type
     prompts = {
-        "basic": f"""
-        Analyze these {len(base64_images)} book cover images and extract the following information:
-        - Book title
-        - Author(s)
-        
-        Return the result as a JSON object with keys: title, authors.
-        If any information is not visible or unclear, set that value to null.
-        """,
-        
         "detailed": f"""
         Analyze these {len(base64_images)} book cover images and extract the following information:
         - Book title
@@ -96,6 +87,7 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         - Series information (if part of a series)
         
         Return the result as a JSON object with keys: title, authors, publisher, year, isbn, edition, series.
+        Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
         If any information is not visible or unclear, set that value to null.
         """,
         
@@ -114,6 +106,7 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         
         Return the result as a JSON object with keys: title, authors, publisher, year, isbn10, isbn13, edition, series, genre, language, additional_text.
         If any information is not visible or unclear, set that value to null.
+        Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
         """
     }
     
@@ -209,8 +202,10 @@ def infer_missing_metadata(metadata, image_data_list=None):
     - Edition: Use web search to find edition information
     - ISBN: Use web search to verify ISBNs if visible
     
+    
     Return the enhanced metadata as a JSON object. Only fill in fields that are currently null or missing AND that you are highly confident about.
     If you cannot reasonably infer a value with high confidence, keep it as null.
+    Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
     """
     
     try:

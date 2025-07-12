@@ -38,8 +38,8 @@ def test_front_back_covers():
     """
     print("\n=== Front and Back Covers Test ===")
     
-    front_path = "data/raw_images/book3_front.jpg"
-    back_path = "data/raw_images/book3_back.jpg"
+    front_path = "data/raw_images/book1_front.jpg"
+    back_path = "data/raw_images/book1_back.jpg"
     
     if os.path.exists(front_path) and os.path.exists(back_path):
         try:
@@ -75,5 +75,5 @@ if __name__ == "__main__":
         print("Please set your Gemini API key to test the functionality.")
     else:
         print("API key found. Running tests...")
-        test_image_processing()
-        #test_front_back_covers() 
+        #test_image_processing()
+        test_front_back_covers() 
