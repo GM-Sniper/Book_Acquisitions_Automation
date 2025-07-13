@@ -13,6 +13,8 @@ numpy==2.3.0
 requests==2.32.3
 xmltodict==0.13.0
 
+# WorldCat API (uses existing requests library)
+
 # Image Processing
 pypdf2==3.0.1  # Consider switching to 'pypdf' for future updates
 isbntools==4.3.29
@@ -22,6 +24,7 @@ beautifulsoup4==4.12.2
 lxml==5.4.0
 pymarc==5.0.0
 requests-oauthlib==1.3.1
+worldcat-api
 
 # Google Books (not 100% sure if we need this)
 google-api-python-client==2.119.0  # For Google Books API
