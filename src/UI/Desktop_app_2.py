@@ -24,6 +24,7 @@ from src.vision.preprocessing import preprocess_image
 from src.vision.OCR_Processing import extract_text_with_confidence
 from src.metadata.metadata_extraction import extract_metadata_with_gemini, metadata_combiner
 from src.utils.isbn_detection import extract_and_validate_isbns
+from src.vision.gemini_processing import process_book_images
 
 class ModernButton(QPushButton):
     """Custom modern button with hover effects and animations (dark mode)"""
@@ -372,12 +373,9 @@ class ModernBookAcquisitionApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("📚 Book Acquisition Tool - Modern Edition")
         self.setGeometry(100, 50, 1400, 900)
-        
-        # Store captured images
-        self.front_image = None
-        self.back_image = None
+        # Store captured images (list)
+        self.captured_images = []
         self.processing_thread = None
-        
         # Setup modern styling
         self.setup_styles()
         self.setup_ui()
@@ -465,21 +463,29 @@ class ModernBookAcquisitionApp(QMainWindow):
         self.camera_widget = ModernCameraWidget()
         camera_layout.addWidget(self.camera_widget)
         left_panel.addWidget(camera_group)
+        # Multi-image capture status
         status_group = QGroupBox("📊 Capture Status")
-        status_layout = QGridLayout(status_group)
-        self.front_status = StatusCard("Front Cover")
-        self.back_status = StatusCard("Back Cover")
-        status_layout.addWidget(self.front_status, 0, 0)
-        status_layout.addWidget(self.back_status, 0, 1)
+        status_layout = QVBoxLayout(status_group)
+        self.captured_count_label = QLabel("Captured Images: 0")
+        self.captured_count_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self.captured_count_label.setStyleSheet("color: #fff; margin-bottom: 2px;")
+        status_layout.addWidget(self.captured_count_label)
+        self.captured_list_label = QLabel("")
+        self.captured_list_label.setFont(QFont("Segoe UI", 10))
+        self.captured_list_label.setStyleSheet("color: #b3c6e0;")
+        status_layout.addWidget(self.captured_list_label)
         left_panel.addWidget(status_group)
+        # Single capture button
         capture_group = QGroupBox("📸 Capture Controls")
         capture_layout = QHBoxLayout(capture_group)
-        self.capture_front_btn = ModernButton("📖 Capture Front Cover", "#1976d2", "#1565c0")
-        self.capture_front_btn.clicked.connect(self.capture_front)
-        self.capture_back_btn = ModernButton("📚 Capture Back Cover", "#ff9800", "#f57c00")
-        self.capture_back_btn.clicked.connect(self.capture_back)
-        capture_layout.addWidget(self.capture_front_btn)
-        capture_layout.addWidget(self.capture_back_btn)
+        self.capture_image_btn = ModernButton("📸 Capture Image", "#1976d2", "#1565c0")
+        self.capture_image_btn.clicked.connect(self.capture_image)
+        capture_layout.addWidget(self.capture_image_btn)
+        # Process button
+        self.process_btn = ModernButton("⚡ Process Images", "#388e3c", "#2e7031")
+        self.process_btn.setEnabled(False)
+        self.process_btn.clicked.connect(self.start_processing)
+        capture_layout.addWidget(self.process_btn)
         left_panel.addWidget(capture_group)
         progress_group = QGroupBox("⚡ Processing Progress")
         progress_layout = QVBoxLayout(progress_group)
@@ -521,41 +527,39 @@ class ModernBookAcquisitionApp(QMainWindow):
         content_layout.addLayout(right_panel, 3)
         main_layout.addLayout(content_layout)
 
-    def capture_front(self):
+    def capture_image(self):
         if not self.camera_widget.camera or not self.camera_widget.camera.isOpened():
             QMessageBox.warning(self, "Camera Error", "Please start the camera first")
             return
-            
-        self.front_image = self.camera_widget.capture_image()
-        if self.front_image is not None:
-            self.front_status.update_status("Captured ✓", "#28a745")
-            self.check_ready_to_process()
+        image = self.camera_widget.capture_image()
+        if image is not None:
+            self.captured_images.append(image)
+            self.update_capture_status()
+            self.process_btn.setEnabled(True)
 
-    def capture_back(self):
-        if not self.camera_widget.camera or not self.camera_widget.camera.isOpened():
-            QMessageBox.warning(self, "Camera Error", "Please start the camera first")
-            return
-            
-        self.back_image = self.camera_widget.capture_image()
-        if self.back_image is not None:
-            self.back_status.update_status("Captured ✓", "#28a745")
-            self.check_ready_to_process()
-
-    def check_ready_to_process(self):
-        if self.front_image is not None and self.back_image is not None:
-            self.progress_label.setText("Processing... Please wait")
-            self.progress_label.setStyleSheet("color: #fd7e14; font-size: 12px; font-weight: 600; margin-top: 5px;")
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.start_processing()
+    def update_capture_status(self):
+        count = len(self.captured_images)
+        self.captured_count_label.setText(f"Captured Images: {count}")
+        if count > 0:
+            self.captured_list_label.setText(", ".join([f"Captured {i+1}" for i in range(count)]))
+        else:
+            self.captured_list_label.setText("")
+        if count == 0:
+            self.process_btn.setEnabled(False)
 
     def start_processing(self):
-        # Disable capture buttons during processing
-        self.capture_front_btn.setEnabled(False)
-        self.capture_back_btn.setEnabled(False)
-        
+        if not self.captured_images:
+            QMessageBox.warning(self, "No Images", "Please capture at least one image before processing.")
+            return
+        # Disable buttons during processing
+        self.capture_image_btn.setEnabled(False)
+        self.process_btn.setEnabled(False)
+        self.progress_label.setText("Processing... Please wait")
+        self.progress_label.setStyleSheet("color: #fd7e14; font-size: 12px; font-weight: 600; margin-top: 5px;")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
         # Start background processing
-        self.processing_thread = ProcessingThread(self.front_image, self.back_image)
+        self.processing_thread = GeminiProcessingThread(self.captured_images)
         self.processing_thread.processing_complete.connect(self.on_processing_complete)
         self.processing_thread.processing_error.connect(self.on_processing_error)
         self.processing_thread.progress_update.connect(self.progress_bar.setValue)
@@ -563,72 +567,59 @@ class ModernBookAcquisitionApp(QMainWindow):
 
     def on_processing_complete(self, metadata):
         self.progress_bar.setVisible(False)
-        self.capture_front_btn.setEnabled(True)
-        self.capture_back_btn.setEnabled(True)
-        
+        self.capture_image_btn.setEnabled(True)
+        self.process_btn.setEnabled(True)
         self.progress_label.setText("Processing complete ✓")
         self.progress_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: 600; margin-top: 5px;")
-        
-        # Display results with modern formatting
+        # Display results
         if metadata:
             result_text = "📚 Book Metadata\n" + "="*50 + "\n\n"
-            
             if metadata.get('title'):
                 result_text += f"📖 Title: {metadata['title']}\n\n"
             if metadata.get('authors'):
                 result_text += f"✍️ Authors: {', '.join(metadata['authors'])}\n\n"
-            if metadata.get('isbns'):
-                result_text += f"🔢 ISBNs: {', '.join(metadata['isbns'])}\n\n"
-            
-            # Add confidence information with visual indicators
-            result_text += "📊 OCR Confidence Analysis\n" + "="*50 + "\n\n"
-            
-            # Front cover confidence
-            front_conf = metadata.get('front_confidence', 0.0)
-            front_words = metadata.get('front_word_count', 0)
-            front_indicator = self.get_confidence_indicator(front_conf)
-            result_text += f"📖 Front Cover: {front_indicator} {front_conf:.1%} ({front_words} words)\n\n"
-            
-            # Back cover confidence
-            back_conf = metadata.get('back_confidence', 0.0)
-            back_words = metadata.get('back_word_count', 0)
-            back_indicator = self.get_confidence_indicator(back_conf)
-            result_text += f"📚 Back Cover: {back_indicator} {back_conf:.1%} ({back_words} words)\n\n"
-            
-            # Overall assessment
-            avg_confidence = (front_conf + back_conf) / 2
-            overall_indicator = self.get_confidence_indicator(avg_confidence)
-            result_text += f"🎯 Overall Quality: {overall_indicator} {avg_confidence:.1%}\n"
-            
-            # Update confidence display
+            if metadata.get('isbn'):
+                result_text += f"🔢 ISBN: {metadata['isbn']}\n\n"
+            if metadata.get('isbn10'):
+                result_text += f"🔢 ISBN-10: {metadata['isbn10']}\n\n"
+            if metadata.get('isbn13'):
+                result_text += f"🔢 ISBN-13: {metadata['isbn13']}\n\n"
+            if metadata.get('publisher'):
+                result_text += f"🏢 Publisher: {metadata['publisher']}\n\n"
+            if metadata.get('year'):
+                result_text += f"📅 Year: {metadata['year']}\n\n"
+            if metadata.get('edition'):
+                result_text += f"📚 Edition: {metadata['edition']}\n\n"
+            if metadata.get('series'):
+                result_text += f"🔗 Series: {metadata['series']}\n\n"
+            if metadata.get('genre'):
+                result_text += f"🏷️ Genre: {metadata['genre']}\n\n"
+            if metadata.get('language'):
+                result_text += f"🌐 Language: {metadata['language']}\n\n"
+            if metadata.get('additional_text'):
+                result_text += f"📝 Additional Text: {metadata['additional_text']}\n\n"
+            self.results_text.setText(result_text)
+            # Confidence display (Gemini doesn't provide a confidence score, so just show a message)
             confidence_html = f"""
-            <div style="padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px;">
-                <h3 style="color: #2c3e50; margin: 0 0 10px 0;">Confidence Analysis</h3>
-                <div style="display: flex; justify-content: space-between; margin: 10px 0;">
-                    <span>Front Cover: {front_indicator} {front_conf:.1%}</span>
-                    <span>Back Cover: {back_indicator} {back_conf:.1%}</span>
-                </div>
-                <div style="text-align: center; margin-top: 15px;">
-                    <strong>Overall: {overall_indicator} {avg_confidence:.1%}</strong>
+            <div style=\"padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px;\">
+                <h3 style=\"color: #2c3e50; margin: 0 0 10px 0;\">Gemini Vision Analysis</h3>
+                <div style=\"text-align: center; margin-top: 15px;\">
+                    <strong>Processed {len(self.captured_images)} image(s) with Gemini Vision</strong>
                 </div>
             </div>
             """
             self.confidence_text.setText(confidence_html)
-            
         else:
             result_text = "❌ No metadata could be extracted.\n\n💡 Suggestions:\n• Ensure good lighting\n• Hold the book steady\n• Include the entire cover\n• Try different angles"
             self.confidence_text.setText("No confidence data available")
-        
-        self.results_text.setText(result_text)
+            self.results_text.setText(result_text)
 
     def on_processing_error(self, error_message):
         self.progress_bar.setVisible(False)
-        self.capture_front_btn.setEnabled(True)
-        self.capture_back_btn.setEnabled(True)
-        
+        self.capture_image_btn.setEnabled(True)
+        self.process_btn.setEnabled(True)
         self.progress_label.setText("Processing failed ✗")
         self.progress_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: 600; margin-top: 5px;")
-        
         QMessageBox.critical(self, "Processing Error", f"An error occurred during processing:\n{error_message}")
 
     def get_confidence_indicator(self, confidence):
@@ -641,6 +632,25 @@ class ModernBookAcquisitionApp(QMainWindow):
             return "🟠"  # Orange - Low confidence
         else:
             return "🔴"  # Red - Very low confidence
+
+# New GeminiProcessingThread for Gemini-based processing
+from PyQt6.QtCore import QThread, pyqtSignal
+class GeminiProcessingThread(QThread):
+    processing_complete = pyqtSignal(dict)
+    processing_error = pyqtSignal(str)
+    progress_update = pyqtSignal(int)
+    def __init__(self, image_list):
+        super().__init__()
+        self.image_list = image_list
+    def run(self):
+        try:
+            self.progress_update.emit(10)
+            # Use Gemini processing pipeline
+            metadata = process_book_images(self.image_list, prompt_type="comprehensive", infer_missing=True)
+            self.progress_update.emit(100)
+            self.processing_complete.emit(metadata)
+        except Exception as e:
+            self.processing_error.emit(str(e))
 
 def main():
     app = QApplication(sys.argv)
