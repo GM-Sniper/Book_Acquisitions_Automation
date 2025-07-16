@@ -28,69 +28,72 @@ def fuzzy_match(a, b):
 def get_unified_metadata(title, authors, isbns, lccns=None, edition=None):
     """
     Query Google Books and OpenLibrary and return unified metadata fields.
-    lccns: optional, a list or string of LCCNs to use for the 'LC no.' field.
-    edition: optional, edition information from Gemini metadata.
+    Workflow:
+    1. If ISBN(s) exist, use only ISBN search for both APIs.
+    2. If no ISBNs, use only title/author search for both APIs.
     Returns a dict with keys: TITLE, AUTHOR, PUBLISHED, D.O Pub., OCLC no., LC no., ISBN
     """
     gb_data = None
     ol_data = None
     api = OpenLibraryAPI()
-    # Prefer ISBN search if available
     found_by_isbn = False
-    if isbns:
+    found_by_fallback = False
+    # --- Workflow 1: Use ISBN if present ---
+    if isbns and any(isbns):
         for isbn in isbns:
-            # Google Books
+            # Google Books by ISBN
             try:
                 gb_result = search_book_by_isbn(isbn)
+                print(f"[DEBUG] Google Books result for ISBN {isbn}: {gb_result}")
                 if gb_result and gb_result.get('items'):
                     gb_data = extract_book_metadata(gb_result)
-                    # Only use if ISBN matches exactly
                     if gb_data and gb_data.get('isbn') and isbn in gb_data['isbn']:
                         found_by_isbn = True
                         break
                     else:
                         gb_data = None
             except Exception as e:
-                pass
-            # OpenLibrary
+                print(f"[ERROR] Google Books ISBN search failed for {isbn}: {e}")
+        for isbn in isbns:
+            # OpenLibrary by ISBN
             try:
                 ol_data = api.search_by_isbn(isbn)
+                print(f"[DEBUG] OpenLibrary result for ISBN {isbn}: {ol_data}")
                 if ol_data and ol_data.get('isbn') and isbn in ol_data['isbn']:
                     found_by_isbn = True
                     break
                 else:
                     ol_data = None
             except Exception as e:
-                pass
-    # Fallback: search by title/author if no ISBN match
-    found_by_fallback = False
-    fallback_gb = None
-    fallback_ol = None
-    if not found_by_isbn and title:
+                print(f"[ERROR] OpenLibrary ISBN search failed for {isbn}: {e}")
+    # --- Workflow 2: Use title/author if no ISBNs ---
+    elif title:
+        # Google Books by title/author
         try:
             gb_result = search_book_by_title_author(title, authors, edition)
+            print(f"[DEBUG] Google Books result for title/author '{title}'/{authors}: {gb_result}")
             if gb_result and gb_result.get('items'):
                 candidate = extract_book_metadata(gb_result)
-                # Fuzzy match title and author
                 title_ratio = fuzzy_match(candidate.get('title', ''), title)
                 author_ratio = fuzzy_match(candidate.get('author', ''), ', '.join(authors) if authors else '')
                 if title_ratio >= 0.9 and author_ratio >= 0.9:
-                    fallback_gb = candidate
+                    gb_data = candidate
                     found_by_fallback = True
         except Exception as e:
-            pass
-    if not found_by_isbn and not found_by_fallback and title:
+            print(f"[ERROR] Google Books title/author search failed for '{title}'/{authors}: {e}")
+        # OpenLibrary by title/author
         try:
             ol_candidate = api.search_by_title_author(title, authors, edition)
+            print(f"[DEBUG] OpenLibrary result for title/author '{title}'/{authors}: {ol_candidate}")
             if ol_candidate:
                 title_ratio = fuzzy_match(ol_candidate.get('title', ''), title)
                 author_ratio = fuzzy_match(ol_candidate.get('author', ''), ', '.join(authors) if authors else '')
                 if title_ratio >= 0.9 and author_ratio >= 0.9:
-                    fallback_ol = ol_candidate
+                    ol_data = ol_candidate
                     found_by_fallback = True
         except Exception as e:
-            pass
-    # Compose unified result
+            print(f"[ERROR] OpenLibrary title/author search failed for '{title}'/{authors}: {e}")
+    # Compose LCCN string
     if isinstance(lccns, list):
         lccn_str = '; '.join([l for l in lccns if l])
     elif isinstance(lccns, str):
@@ -98,15 +101,8 @@ def get_unified_metadata(title, authors, isbns, lccns=None, edition=None):
     else:
         lccn_str = ''
     # Decide which data to use
-    if found_by_isbn:
-        use_gb = gb_data if gb_data else None
-        use_ol = ol_data if ol_data else None
-    elif found_by_fallback:
-        use_gb = fallback_gb if fallback_gb else None
-        use_ol = fallback_ol if fallback_ol else None
-    else:
-        use_gb = None
-        use_ol = None
+    use_gb = gb_data if gb_data else None
+    use_ol = ol_data if ol_data else None
     unified = {
         'TITLE': use_gb['title'] if use_gb and use_gb.get('title') else (use_ol['title'] if use_ol else title),
         'AUTHOR': use_gb['author'] if use_gb and use_gb.get('author') else (use_ol['author'] if use_ol else ', '.join(authors) if authors else ''),

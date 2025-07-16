@@ -6,9 +6,10 @@ from googleapiclient.discovery import build
 import re
 
 def get_google_books_service(api_key=None):
-    """Initialize Google Books API service"""
     if api_key is None:
         api_key = os.getenv('GOOGLE_BOOKS_API_KEY')
+    if not api_key or api_key == "Third Edition":
+        raise RuntimeError("Google Books API key is missing or invalid!")
     return build('books', 'v1', developerKey=api_key)
 
 def search_book_by_isbn(isbn, api_key=None):

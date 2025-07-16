@@ -1,22 +1,17 @@
 """
-WorldCat API Test Suite
-=======================
+WorldCat API v2 Test Suite
+=========================
 
 Purpose:
 --------
-This test suite evaluates the WorldCat API integration for book metadata retrieval,
-specifically focusing on ISBN search and OCLC number retrieval.
+This test suite evaluates the WorldCat Search API v2 integration for book metadata retrieval,
+specifically focusing on ISBN and title/author search using the new OAuth2/JSON API.
 
 Key Functionality Tested:
 ------------------------
-1. ISBN Search
-   - Tests the SRU (Search/Retrieve via URL) service
-   - Validates ISBN cleaning and formatting
-   - Checks metadata extraction from XML responses
-
-2. OCLC Number Retrieval
-   - Tests OCLC number extraction from search results
-   - Validates OCLC number format
+1. ISBN Search (search_by_isbn)
+2. Title/Author Search (search_by_title_author)
+3. Multiple ISBN Search (search_multiple_isbns)
 
 Test Data:
 ---------
@@ -27,7 +22,7 @@ Uses well-known books for testing:
 
 Note:
 -----
-This test suite requires valid WorldCat credentials to be set in environment variables.
+This test suite requires valid WorldCat v2 credentials to be set in environment variables.
 Set WORLDCAT_CLIENT_ID and WORLDCAT_CLIENT_SECRET in your .env file before running tests.
 """
 
@@ -40,40 +35,36 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from src.utils.worldcat import WorldCatAPI
+from src.utils.worldcat import WorldCatAPIv2
 from config.config import Config
 
-def test_worldcat_api_initialization():
-    """Test WorldCat API client initialization"""
-    print("Testing WorldCat API initialization...")
-    
+def test_worldcat_api_v2_initialization():
+    """Test WorldCatAPIv2 client initialization"""
+    print("Testing WorldCatAPIv2 initialization...")
     try:
-        api = WorldCatAPI()
-        print(f"✓ WorldCat API client initialized successfully")
-        print(f"  - Base URL: {api.base_url}")
+        api = WorldCatAPIv2()
+        print(f"✓ WorldCatAPIv2 client initialized successfully")
+        print(f"  - API Base URL: {api.api_base_url}")
         print(f"  - Client ID configured: {'Yes' if api.client_id else 'No'}")
         print(f"  - Client Secret configured: {'Yes' if api.client_secret else 'No'}")
         return True
     except Exception as e:
-        print(f"✗ WorldCat API initialization failed: {e}")
+        print(f"✗ WorldCatAPIv2 initialization failed: {e}")
         return False
 
-def test_isbn_search():
-    """Test ISBN search functionality"""
-    print("\nTesting WorldCat ISBN search...")
-    
-    api = WorldCatAPI()
+def test_isbn_search_v2():
+    """Test ISBN search functionality (v2)"""
+    print("\nTesting WorldCat v2 ISBN search...")
+    api = WorldCatAPIv2()
     test_isbns = [
         "9780446310789",  # To Kill a Mockingbird
         "9780141439518",  # Pride and Prejudice
         "9780743273565"   # The Great Gatsby
     ]
-    
     for isbn in test_isbns:
         print(f"\nSearching for ISBN: {isbn}")
         try:
             metadata = api.search_by_isbn(isbn)
-            
             if metadata:
                 print(f"✓ Found metadata for ISBN {isbn}")
                 print(f"  - Title: {metadata.get('title', 'N/A')}")
@@ -85,44 +76,14 @@ def test_isbn_search():
                 print(f"  - Source: {metadata.get('source', 'N/A')}")
             else:
                 print(f"✗ No metadata found for ISBN {isbn}")
-                
         except Exception as e:
             print(f"✗ Error searching for ISBN {isbn}: {e}")
-        
-        # Rate limiting
         time.sleep(2)
 
-def test_oclc_number_retrieval():
-    """Test OCLC number retrieval"""
-    print("\nTesting OCLC number retrieval...")
-    
-    api = WorldCatAPI()
-    test_isbns = [
-        "9780446310789",  # To Kill a Mockingbird
-        "9780141439518"   # Pride and Prejudice
-    ]
-    
-    for isbn in test_isbns:
-        print(f"\nGetting OCLC number for ISBN: {isbn}")
-        try:
-            oclc_number = api.get_oclc_number(isbn)
-            
-            if oclc_number:
-                print(f"✓ OCLC number found: {oclc_number}")
-            else:
-                print(f"✗ No OCLC number found for ISBN {isbn}")
-                
-        except Exception as e:
-            print(f"✗ Error getting OCLC number for ISBN {isbn}: {e}")
-        
-        # Rate limiting
-        time.sleep(2)
-
-def test_title_author_search():
-    """Test title and author search"""
-    print("\nTesting WorldCat title/author search...")
-    
-    api = WorldCatAPI()
+def test_title_author_search_v2():
+    """Test title and author search (v2)"""
+    print("\nTesting WorldCat v2 title/author search...")
+    api = WorldCatAPIv2()
     test_books = [
         {
             "title": "To Kill a Mockingbird",
@@ -133,57 +94,48 @@ def test_title_author_search():
             "authors": ["Jane Austen"]
         }
     ]
-    
     for book in test_books:
         print(f"\nSearching for: {book['title']} by {', '.join(book['authors'])}")
         try:
             metadata = api.search_by_title_author(book['title'], book['authors'])
-            
             if metadata:
                 print(f"✓ Found metadata")
                 print(f"  - Title: {metadata.get('title', 'N/A')}")
                 print(f"  - Author: {metadata.get('author', 'N/A')}")
                 print(f"  - Publisher: {metadata.get('publisher', 'N/A')}")
                 print(f"  - OCLC Number: {metadata.get('oclc_no', 'N/A')}")
+                print(f"  - ISBN: {metadata.get('isbn', 'N/A')}")
             else:
                 print(f"✗ No metadata found")
-                
         except Exception as e:
             print(f"✗ Error searching: {e}")
-        
-        # Rate limiting
         time.sleep(2)
 
-def test_multiple_isbn_search():
-    """Test searching multiple ISBNs at once"""
-    print("\nTesting multiple ISBN search...")
-    
-    api = WorldCatAPI()
+def test_multiple_isbn_search_v2():
+    """Test searching multiple ISBNs at once (v2)"""
+    print("\nTesting WorldCat v2 multiple ISBN search...")
+    api = WorldCatAPIv2()
     test_isbns = [
         "9780446310789",  # To Kill a Mockingbird
         "9780141439518",  # Pride and Prejudice
         "9780743273565"   # The Great Gatsby
     ]
-    
     try:
         results = api.search_multiple_isbns(test_isbns)
-        
         print(f"✓ Searched {len(test_isbns)} ISBNs")
         for isbn, metadata in results.items():
             if metadata:
                 print(f"  - {isbn}: Found ({metadata.get('title', 'N/A')})")
             else:
                 print(f"  - {isbn}: Not found")
-                
     except Exception as e:
         print(f"✗ Error in multiple ISBN search: {e}")
 
-def run_all_tests():
-    """Run all WorldCat API tests"""
+def run_all_tests_v2():
+    """Run all WorldCat API v2 tests"""
     print("=" * 60)
-    print("WORLDCAT API TEST SUITE")
+    print("WORLDCAT API v2 TEST SUITE")
     print("=" * 60)
-    
     # Check if credentials are configured
     config = Config()
     if not hasattr(config, 'WORLDCAT_CLIENT_ID') or not config.WORLDCAT_CLIENT_ID:
@@ -195,31 +147,25 @@ def run_all_tests():
     if (not hasattr(config, 'WORLDCAT_CLIENT_ID') or not config.WORLDCAT_CLIENT_ID or
         not hasattr(config, 'WORLDCAT_CLIENT_SECRET') or not config.WORLDCAT_CLIENT_SECRET):
         print("   Some tests may fail without valid credentials")
-    
     tests = [
-        test_worldcat_api_initialization,
-        test_isbn_search,
-        test_oclc_number_retrieval,
-        test_title_author_search,
-        test_multiple_isbn_search
+        test_worldcat_api_v2_initialization,
+        test_isbn_search_v2,
+        test_title_author_search_v2,
+        test_multiple_isbn_search_v2
     ]
-    
     passed = 0
     total = len(tests)
-    
     for test in tests:
         try:
             if test():
                 passed += 1
         except Exception as e:
             print(f"✗ Test {test.__name__} failed with exception: {e}")
-    
     print("\n" + "=" * 60)
     print(f"TEST RESULTS: {passed}/{total} tests passed")
     print("=" * 60)
-    
     return passed == total
 
 if __name__ == "__main__":
-    success = run_all_tests()
+    success = run_all_tests_v2()
     sys.exit(0 if success else 1) 
