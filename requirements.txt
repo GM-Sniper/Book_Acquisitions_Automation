@@ -18,6 +18,7 @@ xmltodict==0.13.0
 # Image Processing
 pypdf2==3.0.1  # Consider switching to 'pypdf' for future updates
 isbntools==4.3.29
+isbnlib
 
 # Database & Catalog Integration
 beautifulsoup4==4.12.2
