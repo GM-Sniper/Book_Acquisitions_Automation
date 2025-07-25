@@ -106,6 +106,7 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         
         Return the result as a JSON object with keys: title, authors, publisher, year, isbn10, isbn13, edition, series, genre, language, additional_text.
         If any information is not visible or unclear, set that value to null.
+        Be specific, if a book is in arabic return the title and author in arabic and publisher in arabic.
         Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
         """
     }
@@ -174,38 +175,43 @@ def infer_missing_metadata(metadata, image_data_list=None):
     
     # Create a more conservative prompt for inference with web search
     prompt = f"""
-    Based on your knowledge of books and publishing, help fill in missing information for this book. Be very conservative and only provide information you are highly confident about.
+    You are a highly reliable book metadata enrichment assistant. Your goal is to provide the most complete, accurate, and standardized metadata possible for the given book, using all available resources, especially web search.
     
-    Current metadata: {json.dumps(metadata, indent=2)}
+    CURRENT METADATA:
+    {json.dumps(metadata, indent=2)}
     
-    IMPORTANT GUIDELINES:
-    - Only fill in information you are 90%+ confident about
-    - If you're unsure, leave it as null
-    - Do NOT guess publication years unless you have strong evidence
-    - Do NOT guess publishers unless you have strong evidence
-    - Do NOT guess ISBNs - these are unique identifiers that cannot be inferred
-    - For genre, only infer if the title/author clearly indicates it
-    - Be very careful with children's literature classification - only if clearly a children's book
+    INSTRUCTIONS:
+    - Use web search and your knowledge to fill in EVERY possible field, even if the original metadata is incomplete or missing.
+    - For each field, do your absolute best to infer the correct value using web search, reasoning, and any clues from the metadata.
+    - If a field is missing, search for it online (title, author, publisher, ISBN, etc.) and fill it in if you can find a reliable answer.
+    - Be consistent: always use the same field names and formats as in the input metadata.
+    - Do NOT guess randomly. Only fill a field if you have a strong reason or evidence from web search or your knowledge.
+    - If you cannot find a value after a thorough search, set the field to null.
+    - For ISBNs, always remove dashes and return the ISBN in the key without dashes.
+    - For publication year, publisher, edition, genre, and language, always attempt to find the most accurate and up-to-date information using web search.
+    - If the book is a translation or has multiple editions, prefer the most widely recognized or latest edition unless otherwise specified.
+    - For genre, use web search to verify and standardize the genre classification.
+    - For language, infer from the title, author, or web search if not explicitly given.
+    - For children's literature, only classify as such if it is clearly indicated by web search or authoritative sources.
+    - Return a single, complete JSON object with all possible fields filled in, using the most reliable data you can find.
+    - Do not include any extra commentary or explanation—just the JSON object.
     
-    Use your knowledge and any websearch and available information to:
-    - Look up publication years for books you recognize
-    - Find publisher information for known books
-    - Verify ISBNs if visible on the cover
-    - Get accurate genre classifications
-    - Find edition information
+    FIELDS TO FILL (if possible):
+    - title
+    - author(s)
+    - publisher
+    - published_date (year or full date)
+    - edition
+    - genre
+    - language
+    - isbn_10
+    - isbn_13
+    - oclc_no
+    - lc_no
+    - subjects
+    - any other relevant bibliographic fields
     
-    Focus on:
-    - Publication year: Use web search to find accurate publication dates
-    - Publisher: Use web search to find the correct publisher
-    - Genre: Use web search to verify genre classifications
-    - Language: Only if title clearly indicates non-English
-    - Edition: Use web search to find edition information
-    - ISBN: Use web search to verify ISBNs if visible
-    
-    
-    Return the enhanced metadata as a JSON object. Only fill in fields that are currently null or missing AND that you are highly confident about.
-    If you cannot reasonably infer a value with high confidence, keep it as null.
-    Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
+    Your output should be a single, fully filled JSON object with as many fields as possible completed using web search and your knowledge. If a value cannot be found, set it to null.
     """
     
     try:

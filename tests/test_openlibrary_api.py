@@ -237,6 +237,28 @@ def test_openlibrary_multiple_isbns():
         print()
     print()
 
+def test_openlibrary_expand_work():
+    print("\n=== OpenLibrary Title/Author Search with Work Expansion ===")
+    api = OpenLibraryAPI(debug=True)
+    title = "Fantastic Mr. Fox"
+    authors = ["Roald Dahl"]
+    result = api.search_by_title_author(title, authors, expand_work=True)
+    print("\n--- Basic Parsed Result ---")
+    for k, v in result.items():
+        if k not in ("work_details", "latest_edition"):
+            print(f"{k}: {v}")
+    if "work_details" in result:
+        print("\n--- Work Details (truncated) ---")
+        work = result["work_details"]
+        for k in list(work.keys())[:10]:
+            print(f"{k}: {work[k]}")
+    if "latest_edition" in result and result["latest_edition"]:
+        print("\n--- Latest Edition (truncated) ---")
+        edition = result["latest_edition"]
+        for k in list(edition.keys())[:10]:
+            print(f"{k}: {edition[k]}")
+    print("\n=== End Test ===\n")
+
 def run_all_openlibrary_tests():
     """Run all OpenLibrary API tests"""
     print("🚀 Starting OpenLibrary API Tests\n")

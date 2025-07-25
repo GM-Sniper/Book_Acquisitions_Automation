@@ -33,7 +33,23 @@ class OpenLibraryAPI:
         book_data = data.get(f"ISBN:{clean_isbn}")
         return self._parse_book_data(book_data, source="isbn") if book_data else None
 
-    def search_by_title_author(self, title: str, authors: Optional[List[str]] = None, lang: Optional[str] = None) -> Optional[Dict]:
+    def fetch_work_details(self, work_key: str) -> Optional[Dict]:
+        """Fetch work details from OpenLibrary using the work key (e.g., '/works/OL45804W')"""
+        if not work_key:
+            return None
+        url = f"{self.BASE_URL}{work_key}.json"
+        data = self._get(url, {})
+        if not data:
+            return None
+        # Optionally fetch editions
+        editions_url = f"{self.BASE_URL}{work_key}/editions.json"
+        editions_data = self._get(editions_url, {"limit": 1, "sort": "last_modified"})
+        latest_edition = None
+        if editions_data and editions_data.get("entries"):
+            latest_edition = editions_data["entries"][0]
+        return {"work": data, "latest_edition": latest_edition}
+
+    def search_by_title_author(self, title: str, authors: Optional[List[str]] = None, lang: Optional[str] = None, expand_work: bool = True) -> Optional[Dict]:
         query = self._build_query(title, authors)
         results = self._search(query, lang=lang)
         if not results:
@@ -41,7 +57,14 @@ class OpenLibraryAPI:
 
         print(f"🔍 OPENLIBRARY SEARCH RESULTS-----------------------------: {results}")
         book_data = self._find_best_match(results, title, authors)
-        return self._parse_book_data(book_data, source="search") if book_data else None
+        parsed = self._parse_book_data(book_data, source="search") if book_data else None
+        # Expand with work details if requested and available
+        if expand_work and book_data and book_data.get("key", "").startswith("/works/"):
+            work_details = self.fetch_work_details(book_data["key"])
+            if work_details:
+                parsed["work_details"] = work_details["work"]
+                parsed["latest_edition"] = work_details["latest_edition"]
+        return parsed
 
     def _build_query(self, title: str, authors: Optional[List[str]]) -> str:
         """Build query with proper escaping"""
