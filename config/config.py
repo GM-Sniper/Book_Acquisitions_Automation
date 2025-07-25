@@ -7,6 +7,7 @@ class Config:
     # Google Vision
     GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
     GOOGLE_CREDENTIALS_PATH = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+    GOOGLE_BOOKS_API_KEY = os.getenv('GOOGLE_BOOKS_API_KEY')
 
     # Gemini (Generative AI)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')

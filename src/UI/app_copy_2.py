@@ -16,8 +16,9 @@ from src.vision.preprocessing import preprocess_image
 from src.metadata.metadata_extraction import metadata_combiner
 from src.utils.isbn_detection import extract_isbns, extract_and_validate_isbns
 from src.utils.google_books import search_book_by_isbn, search_book_by_title_author, extract_book_metadata
-from src.utils.openlibrary import OpenLibraryAPI
+from src.utils.isbnlib_service import ISBNService
 from src.utils.LOC import LOCConverter
+from src.metadata.llm_metadata_combiner import llm_metadata_combiner
 
 # Helper function to unify metadata from Google Books and OpenLibrary
 
@@ -25,94 +26,51 @@ def fuzzy_match(a, b):
     """Return a similarity ratio between two strings (0-1) using difflib."""
     return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
-def get_unified_metadata(title, authors, isbns, lccns=None, edition=None):
+def get_unified_metadata(title, authors, isbns, lccns=None, edition=None, gemini_data=None, google_books_data=None, openlibrary_data=None, loc_data=None, isbnlib_data=None, debug=False):
     """
-    Query Google Books and OpenLibrary and return unified metadata fields.
-    Workflow:
-    1. If ISBN(s) exist, use only ISBN search for both APIs.
-    2. If no ISBNs, use only title/author search for both APIs.
-    Returns a dict with keys: TITLE, AUTHOR, PUBLISHED, D.O Pub., OCLC no., LC no., ISBN
+    Enhanced: Use Gemini's ISBN(s) for all lookups, and merge all metadata using the LLM combiner.
+    Args:
+        title, authors, isbns, lccns, edition: as before
+        gemini_data, google_books_data, openlibrary_data, loc_data, isbnlib_data: dicts from each source
+        debug: if True, return provenance for each field
+    Returns:
+        dict: merged metadata (and provenance if debug=True)
     """
-    gb_data = None
-    ol_data = None
-    api = OpenLibraryAPI()
-    found_by_isbn = False
-    found_by_fallback = False
-    # --- Workflow 1: Use ISBN if present ---
-    if isbns and any(isbns):
-        for isbn in isbns:
-            # Google Books by ISBN
-            try:
-                gb_result = search_book_by_isbn(isbn)
-                print(f"[DEBUG] Google Books result for ISBN {isbn}: {gb_result}")
-                if gb_result and gb_result.get('items'):
-                    gb_data = extract_book_metadata(gb_result)
-                    if gb_data and gb_data.get('isbn') and isbn in gb_data['isbn']:
-                        found_by_isbn = True
-                        break
-                    else:
-                        gb_data = None
-            except Exception as e:
-                print(f"[ERROR] Google Books ISBN search failed for {isbn}: {e}")
-        for isbn in isbns:
-            # OpenLibrary by ISBN
-            try:
-                ol_data = api.search_by_isbn(isbn)
-                print(f"[DEBUG] OpenLibrary result for ISBN {isbn}: {ol_data}")
-                if ol_data and ol_data.get('isbn') and isbn in ol_data['isbn']:
-                    found_by_isbn = True
-                    break
-                else:
-                    ol_data = None
-            except Exception as e:
-                print(f"[ERROR] OpenLibrary ISBN search failed for {isbn}: {e}")
-    # --- Workflow 2: Use title/author if no ISBNs ---
-    elif title:
-        # Google Books by title/author
-        try:
-            gb_result = search_book_by_title_author(title, authors, edition)
-            print(f"[DEBUG] Google Books result for title/author '{title}'/{authors}: {gb_result}")
-            if gb_result and gb_result.get('items'):
-                candidate = extract_book_metadata(gb_result)
-                title_ratio = fuzzy_match(candidate.get('title', ''), title)
-                author_ratio = fuzzy_match(candidate.get('author', ''), ', '.join(authors) if authors else '')
-                if title_ratio >= 0.9 and author_ratio >= 0.9:
-                    gb_data = candidate
-                    found_by_fallback = True
-        except Exception as e:
-            print(f"[ERROR] Google Books title/author search failed for '{title}'/{authors}: {e}")
-        # OpenLibrary by title/author
-        try:
-            ol_candidate = api.search_by_title_author(title, authors, edition)
-            print(f"[DEBUG] OpenLibrary result for title/author '{title}'/{authors}: {ol_candidate}")
-            if ol_candidate:
-                title_ratio = fuzzy_match(ol_candidate.get('title', ''), title)
-                author_ratio = fuzzy_match(ol_candidate.get('author', ''), ', '.join(authors) if authors else '')
-                if title_ratio >= 0.9 and author_ratio >= 0.9:
-                    ol_data = ol_candidate
-                    found_by_fallback = True
-        except Exception as e:
-            print(f"[ERROR] OpenLibrary title/author search failed for '{title}'/{authors}: {e}")
-    # Compose LCCN string
-    if isinstance(lccns, list):
-        lccn_str = '; '.join([l for l in lccns if l])
-    elif isinstance(lccns, str):
-        lccn_str = lccns
+    # Always use Gemini ISBNs for all lookups and as final output
+    primary_isbns = []
+    if gemini_data:
+        if isinstance(gemini_data.get('isbn'), list):
+            primary_isbns = gemini_data['isbn']
+        elif gemini_data.get('isbn'):
+            primary_isbns = [gemini_data['isbn']]
+        elif gemini_data.get('isbn13'):
+            primary_isbns = [gemini_data['isbn13']]
+        elif gemini_data.get('isbn10'):
+            primary_isbns = [gemini_data['isbn10']]
+    if not primary_isbns:
+        primary_isbns = isbns or []
+
+    # Call the LLM combiner
+    if debug:
+        merged, provenance = llm_metadata_combiner(
+            gemini_data or {},
+            google_books_data or {},
+            openlibrary_data or {},
+            loc_data or {},
+            isbnlib_data or {},
+            debug=True
+        )
+        return merged, provenance
     else:
-        lccn_str = ''
-    # Decide which data to use
-    use_gb = gb_data if gb_data else None
-    use_ol = ol_data if ol_data else None
-    unified = {
-        'TITLE': use_gb['title'] if use_gb and use_gb.get('title') else (use_ol['title'] if use_ol else title),
-        'AUTHOR': use_gb['author'] if use_gb and use_gb.get('author') else (use_ol['author'] if use_ol else ', '.join(authors) if authors else ''),
-        'PUBLISHED': use_gb['publisher'] if use_gb and use_gb.get('publisher') else (use_ol['publisher'] if use_ol else ''),
-        'D.O Pub.': use_gb['published_date'] if use_gb and use_gb.get('published_date') else (use_ol['published_date'] if use_ol else ''),
-        'OCLC no.': use_ol['oclc_no'] if use_ol and 'oclc_no' in use_ol else '',
-        'LC no.': lccn_str,
-        'ISBN': use_gb['isbn'] if use_gb and use_gb.get('isbn') else (use_ol['isbn'] if use_ol else '; '.join(isbns) if isbns else ''),
-    }
-    return unified
+        merged = llm_metadata_combiner(
+            gemini_data or {},
+            google_books_data or {},
+            openlibrary_data or {},
+            loc_data or {},
+            isbnlib_data or {},
+            debug=False
+        )
+        return merged
 
 # Utility function to save preprocessed image
 def save_preprocessed_image(image_np, original_filename, output_dir='data/processed'):
@@ -266,24 +224,67 @@ if both_images_ready:
                 isbns = combined_metadata['isbn']
             elif isinstance(combined_metadata['isbn'], str):
                 isbns = [combined_metadata['isbn']]
-        
+
         # Get LOC LCCN data
+        loc_results_raw = {}
         loc_results = {}
+        lccn_list = []
         if isbns:
             with st.spinner('Querying Library of Congress for LCCN numbers...'):
                 loc_converter = LOCConverter()
-                loc_results = loc_converter.get_lccn_for_isbns(isbns)
-        
-        # Get all found LCCNs as a list
-        lccn_list = [lccn for lccn in loc_results.values() if lccn] if loc_results else []
-        
+                loc_results_raw = loc_converter.get_lccn_for_isbns(isbns)
+                # Map first non-null LCCN to 'lccn' key for the combiner
+                lccn_value = next((lccn for lccn in loc_results_raw.values() if lccn), None)
+                loc_results = {'lccn': lccn_value} if lccn_value else {}
+                lccn_list = [lccn for lccn in loc_results_raw.values() if lccn] if loc_results_raw else []
+
+        # Fetch Google Books metadata
+        gb_data = None
+        for isbn in isbns:
+            try:
+                gb_result = search_book_by_isbn(isbn)
+                if gb_result and gb_result.get('items'):
+                    gb_data = extract_book_metadata(gb_result)
+                    break
+            except Exception as e:
+                print(f"Google Books error: {e}")
+
+        # Fetch OpenLibrary metadata
+        from src.utils.openlibrary import OpenLibraryAPI
+        ol_api = OpenLibraryAPI()
+        ol_data = None
+        for isbn in isbns:
+            try:
+                ol_data = ol_api.search_by_isbn(isbn)
+                if ol_data and ol_data.get('title'):
+                    break
+            except Exception as e:
+                print(f"OpenLibrary error: {e}")
+
+        # Fetch isbnlib metadata
+        api = ISBNService(debug=True)
+        isbnlib_data = None
+        for isbn in isbns:
+            try:
+                isbnlib_data = api.search_by_isbn(isbn)
+                if isbnlib_data and isbnlib_data.get('title'):
+                    break
+            except Exception as e:
+                print(f"isbnlib error: {e}")
+
         # Get unified metadata from external sources
-        unified = get_unified_metadata(
+        unified, provenance = get_unified_metadata(
             combined_metadata.get('title', ''),
             combined_metadata.get('authors', []),
             isbns,
             lccns=lccn_list,
-            edition=combined_metadata.get('edition')
+            edition=combined_metadata.get('edition'),
+            gemini_data=combined_metadata,
+            google_books_data=gb_data,
+            openlibrary_data=ol_data,
+            loc_data=loc_results,
+            isbnlib_data=isbnlib_data,
+            debug=show_processing_details
         )
         
         st.header('📚 Unified Book Metadata (Gemini + Google Books + OpenLibrary + LOC)')

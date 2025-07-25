@@ -4,11 +4,11 @@ Google Books API utility functions
 import os
 from googleapiclient.discovery import build
 import re
+from config.config import Config
 
 def get_google_books_service(api_key=None):
-    if api_key is None:
-        api_key = os.getenv('GOOGLE_BOOKS_API_KEY')
-    if not api_key or api_key == "Third Edition":
+    api_key = Config.GOOGLE_BOOKS_API_KEY
+    if not api_key:
         raise RuntimeError("Google Books API key is missing or invalid!")
     return build('books', 'v1', developerKey=api_key)
 

@@ -82,11 +82,12 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         - Author(s)
         - Publisher (if visible)
         - Publication year (if visible)
-        - ISBN (if visible)
+        - ISBN (extract the ISBN(s) exactly as they appear in the image; do NOT guess or infer, only extract if clearly visible. If no ISBN is visible, set the field to null.)
         - Edition (if visible)
         - Series information (if part of a series)
         
         Return the result as a JSON object with keys: title, authors, publisher, year, isbn, edition, series.
+        For the ISBN field, only extract the value if it is clearly visible in the image. If not, set it to null. Do NOT guess or infer the ISBN from context, web search, or prior knowledge.
         Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
         If any information is not visible or unclear, set that value to null.
         """,
@@ -97,7 +98,7 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         - Author(s)
         - Publisher
         - Publication year
-        - ISBN (both ISBN-10 and ISBN-13 if available)
+        - ISBN (both ISBN-10 and ISBN-13 if available; extract exactly as they appear in the image. Do NOT guess or infer, only extract if clearly visible. If not visible, set to null.)
         - Edition
         - Series information
         - Genre/category (if evident from cover)
@@ -105,6 +106,7 @@ def extract_book_metadata_from_images(image_data_list, prompt_type="detailed"):
         - Any additional text visible on the covers
         
         Return the result as a JSON object with keys: title, authors, publisher, year, isbn10, isbn13, edition, series, genre, language, additional_text.
+        For the ISBN fields, only extract the values if they are clearly visible in the image. If not, set them to null. Do NOT guess or infer the ISBN from context, web search, or prior knowledge.
         If any information is not visible or unclear, set that value to null.
         Be specific, if a book is in arabic return the title and author in arabic and publisher in arabic.
         Also if the isbn has dashes, remove them and return the isbn in the key without dashes.
