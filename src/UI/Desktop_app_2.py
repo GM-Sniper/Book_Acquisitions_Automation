@@ -24,6 +24,8 @@ from src.vision.preprocessing import preprocess_image
 from src.vision.OCR_Processing import extract_text_with_confidence
 from src.metadata.metadata_extraction import extract_metadata_with_gemini, metadata_combiner
 from src.utils.isbn_detection import extract_and_validate_isbns
+from src.utils.database_cloud import create_table, insert_book, search_book
+
 from src.vision.gemini_processing import process_book_images
 
 class ModernButton(QPushButton):
@@ -609,6 +611,15 @@ class ModernBookAcquisitionApp(QMainWindow):
             </div>
             """
             self.confidence_text.setText(confidence_html)
+            # Check if book exists in cloud DB
+            existing = search_book(isbn=metadata.get('isbn'), title=metadata.get('title'), authors=metadata.get('authors'))
+
+            if existing:
+                QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
+            else:
+                insert_book(metadata)
+                QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
+
         else:
             result_text = "❌ No metadata could be extracted.\n\n💡 Suggestions:\n• Ensure good lighting\n• Hold the book steady\n• Include the entire cover\n• Try different angles"
             self.confidence_text.setText("No confidence data available")
@@ -653,6 +664,7 @@ class GeminiProcessingThread(QThread):
             self.processing_error.emit(str(e))
 
 def main():
+    create_table()
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
     
