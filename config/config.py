@@ -12,8 +12,8 @@ class Config:
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
     # WorldCat API
-    WORLDCAT_CLIENT_ID = os.getenv('WORLDCAT_CLIENT_ID')
-    WORLDCAT_CLIENT_SECRET = os.getenv('WORLDCAT_CLIENT_SECRET')
+    WORLDCAT_CLIENT_ID = os.getenv("WORLDCAT_CLIENT_ID")
+    WORLDCAT_CLIENT_SECRET = os.getenv("WORLDCAT_CLIENT_SECRET")
 
    # Library of Congress APIs only
     LOC_LCCN_BASE_URL = os.getenv('LOC_LCCN_BASE_URL', 'http://lccn.loc.gov')

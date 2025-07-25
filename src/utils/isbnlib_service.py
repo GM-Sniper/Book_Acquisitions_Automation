@@ -1,5 +1,5 @@
 """
-Enhanced ISBN Service using isbnlib for reliable book metadata lookup
+Enhanced ISBN Service using isbnlib for reliable book metadata lookup (No LLM version)
 """
 import isbnlib
 import logging
@@ -10,37 +10,27 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Import Gemini for LLM-powered parsing
-try:
-    from google import genai
-    from config.config import Config
-except ImportError:
-    genai = None
-    Config = None
-
 # Set up logging
 logger = logging.getLogger(__name__)
 
 class ISBNService:
-    """Enhanced and reliable ISBN lookup service using isbnlib"""
+    """Enhanced and reliable ISBN lookup service using isbnlib (No LLM)"""
     
     # Available services in order of preference
     SERVICES = ['openl', 'goob', 'wiki']
     
-    def __init__(self, debug: bool = False, rate_limit: float = 1.0, timeout: int = 30, use_llm: bool = True):
+    def __init__(self, debug: bool = False, rate_limit: float = 1.0, timeout: int = 30):
         """
         Initialize ISBN service
         Args:
             debug (bool): Enable debug logging
             rate_limit (float): Minimum seconds between requests
             timeout (int): Request timeout in seconds
-            use_llm (bool): Enable LLM-powered parsing
         """
         self.debug = debug
         self.rate_limit = rate_limit
         self.timeout = timeout
         self.last_request_time = 0
-        self.use_llm = use_llm
         
         # Setup session with retries
         self.session = requests.Session()
@@ -52,19 +42,6 @@ class ISBNService:
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
-        
-        # Initialize Gemini client if LLM parsing is enabled
-        self.gemini_client = None
-        if self.use_llm and genai and Config and Config.GEMINI_API_KEY:
-            try:
-                self.gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
-                print(f"✅ Gemini client initialized successfully")
-            except Exception as e:
-                print(f"❌ Failed to initialize Gemini client: {e}")
-                self.use_llm = False
-        else:
-            print(f"❌ Gemini not available: genai={genai is not None}, Config={Config is not None}, API_KEY={bool(Config and Config.GEMINI_API_KEY) if Config else False}")
-            self.use_llm = False
     
     def _rate_limit_wait(self):
         """Implement rate limiting between requests"""
@@ -102,54 +79,29 @@ class ISBNService:
         for service in self.SERVICES:
             try:
                 self._rate_limit_wait()
-                
                 metadata = isbnlib.meta(clean_isbn, service=service)
-                
                 if metadata and self._is_valid_metadata(metadata):
-                    # Use LLM parsing if available, otherwise fall back to regular parsing
-                    if self.use_llm and self.gemini_client:
-                        print(f"🤖 Using LLM parsing for {clean_isbn}")
-                        result = self._parse_with_llm(metadata, clean_isbn, service)
-                    else:
-                        print(f"📚 Using regular parsing for {clean_isbn} (LLM: {self.use_llm}, Client: {self.gemini_client is not None})")
-                        result = self._parse_metadata(metadata, clean_isbn, service)
-                    
+                    result = self._parse_metadata(metadata, clean_isbn, service)
                     return result
-                    
             except Exception as e:
                 continue
-        
         return None
     
     def _search_with_merge(self, clean_isbn: str) -> Optional[Dict]:
         """Search using merge approach - combine results from multiple services"""
         all_results = []
-        
-        # Collect results from all services
         for service in self.SERVICES:
             try:
                 self._rate_limit_wait()
-                
                 metadata = isbnlib.meta(clean_isbn, service=service)
-                
                 if metadata and self._is_valid_metadata(metadata):
-                    # Parse metadata (with or without LLM)
-                    if self.use_llm and self.gemini_client:
-                        result = self._parse_with_llm(metadata, clean_isbn, service)
-                    else:
-                        result = self._parse_metadata(metadata, clean_isbn, service)
-                    
+                    result = self._parse_metadata(metadata, clean_isbn, service)
                     all_results.append(result)
-                    
             except Exception as e:
                 continue
-        
         if not all_results:
             return None
-        
-        # Merge results for better accuracy
         merged_result = self._merge_results(all_results, clean_isbn)
-        
         return merged_result
     
     def search_by_title_author(self, title: str, authors: Optional[List[str]] = None, 
@@ -169,15 +121,11 @@ class ISBNService:
             if authors:
                 query_parts.extend(authors)
             query = ' '.join(query_parts)
-            
             self._rate_limit_wait()
-            
             # Search for ISBNs
             isbns = isbnlib.isbn_from_words(query)
-            
             if not isbns:
                 return None
-            
             # Try each ISBN found (up to limit)
             for isbn in isbns[:limit]:
                 result = self.search_by_isbn(isbn)
@@ -185,9 +133,7 @@ class ISBNService:
                     # Verify the result matches our search criteria
                     if self._matches_search_criteria(result, title, authors):
                         return result
-            
             return None
-            
         except Exception as e:
             return None
     
@@ -204,20 +150,16 @@ class ISBNService:
         """Verify search result matches original search criteria"""
         if not result:
             return False
-            
         # Check title similarity (basic check)
         result_title = result.get('title', '').lower()
         search_title = title.lower()
-        
         # Allow partial matches for flexibility
         title_match = search_title in result_title or result_title in search_title
-        
         # Check author match if provided
         author_match = True
         if authors:
             result_authors = result.get('author', '').lower()
             author_match = any(author.lower() in result_authors for author in authors)
-        
         return title_match and author_match
     
     def _parse_metadata(self, metadata: Dict, isbn: str, source: str) -> Dict:
@@ -233,17 +175,14 @@ class ISBNService:
         # Handle different field name variations
         title = (metadata.get('Title') or metadata.get('title') or 
                 metadata.get('TITLE') or '').strip()
-        
         # Extract authors with multiple possible field names
         authors = (metadata.get('Authors') or metadata.get('authors') or 
                   metadata.get('Author') or metadata.get('author') or [])
-        
         if isinstance(authors, str):
             # Handle comma-separated authors
             authors = [a.strip() for a in authors.split(',') if a.strip()]
         elif not isinstance(authors, list):
             authors = [str(authors)] if authors else []
-        
         # Extract publishers
         publishers = (metadata.get('Publisher') or metadata.get('publisher') or 
                      metadata.get('publishers') or [])
@@ -251,22 +190,18 @@ class ISBNService:
             publishers = [publishers]
         elif not isinstance(publishers, list):
             publishers = [str(publishers)] if publishers else []
-        
         # Extract publication year with multiple possible formats
         year = (metadata.get('Year') or metadata.get('year') or 
                metadata.get('published') or metadata.get('publication_date') or '')
-        
         # Clean up year if it's a full date
         if isinstance(year, str) and len(year) > 4:
             import re
             year_match = re.search(r'\b(19|20)\d{2}\b', year)
             if year_match:
                 year = year_match.group()
-        
         # Extract ISBNs
         isbn_10 = metadata.get('ISBN-10', '')
         isbn_13 = metadata.get('ISBN-13', '')
-        
         # Try to convert if one is missing
         if isbn_13 and not isbn_10:
             try:
@@ -278,14 +213,12 @@ class ISBNService:
                 isbn_13 = isbnlib.to_isbn13(isbn_10) or ''
             except:
                 pass
-        
         # Combine all ISBNs
         all_isbns = []
         for potential_isbn in [isbn_10, isbn_13, isbn]:
             clean = isbnlib.clean(str(potential_isbn))
             if clean and clean not in all_isbns:
                 all_isbns.append(clean)
-        
         result = {
             'title': title,
             'author': ', '.join(authors) if authors else '',
@@ -305,97 +238,7 @@ class ISBNService:
             'raw_metadata': metadata if self.debug else None,
             'subjects': metadata.get('Subjects', metadata.get('subjects', ''))
         }
-        
         return result
-    
-    def _parse_with_llm(self, metadata: Dict, isbn: str, source: str) -> Dict:
-        """
-        Use Gemini LLM to parse and enhance book metadata
-        Args:
-            metadata (dict): Raw metadata from service
-            isbn (str): Original ISBN
-            source (str): Source service name
-        Returns:
-            dict: Enhanced metadata parsed by LLM
-        """
-        try:
-            if not self.gemini_client:
-                return self._parse_metadata(metadata, isbn, source)
-            
-            # Prepare the prompt for LLM parsing
-            prompt = f"""
-            Parse this book metadata and return a standardized JSON response.
-            
-            Raw Metadata: {json.dumps(metadata, indent=2, ensure_ascii=False)}
-            ISBN: {isbn}
-            Source: {source}
-            
-            Extract and standardize the following information:
-            - title (original title, handle multiple languages)
-            - author (full author name, handle multiple authors)
-            - publisher (publisher name)
-            - published_date (publication year)
-            - isbn_10 (ISBN-10 if available)
-            - isbn_13 (ISBN-13 if available)
-            - language (book language)
-            - format (hardcover, paperback, ebook, etc.)
-            - oclc_no (OCLC number if available)
-            - lc_no (Library of Congress number if available)
-            - subjects (book genres/subjects if identifiable)
-
-            Handle missing or incomplete data intelligently.
-            
-            Return ONLY a valid JSON object with these fields. Do not include any other text.
-            """
-            
-            # Get response from Gemini
-            response = self.gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[{
-                    "role": "user",
-                    "parts": [{"text": prompt}]
-                }]
-            )
-            
-            # Print raw metadata and Gemini response for debugging
-            print(f"\n📚 RAW METADATA for {isbn} from {source}:")
-            print(json.dumps(metadata, indent=2, ensure_ascii=False))
-            print(f"\n🤖 GEMINI RESPONSE for {isbn}:")
-            print(response.text)
-            print()
-            
-            # Parse the JSON response
-            llm_result = json.loads(response.text.strip())
-            
-            # Ensure we have the required fields with fallbacks
-            result = {
-                'title': llm_result.get('title', metadata.get('Title', metadata.get('title', ''))),
-                'author': llm_result.get('author', ''),
-                'publisher': llm_result.get('publisher', ''),
-                'published_date': str(llm_result.get('published_date', '')),
-                'd_o_pub': str(llm_result.get('published_date', '')),
-                'year': str(llm_result.get('published_date', '')),
-                'isbn_10': llm_result.get('isbn_10', ''),
-                'isbn_13': llm_result.get('isbn_13', ''),
-                'isbn': '; '.join(filter(None, [llm_result.get('isbn_10', ''), llm_result.get('isbn_13', '')])),
-                'language': llm_result.get('language', ''),
-                'format': llm_result.get('format', ''),
-                'subjects': llm_result.get('subjects', ''),
-                'oclc_no': llm_result.get('oclc_no', ''),
-                'lc_no': llm_result.get('lc_no', ''),
-                'source': f'isbnlib_llm_{source}',
-                'raw_metadata': metadata if self.debug else None,
-                'llm_enhanced': True
-            }
-            
-            print(f"🔍 LLM PARSED RESULT: {result}")
-            print(f"🔍 LLM ENHANCED FLAG: {result.get('llm_enhanced', 'NOT SET')}")
-            
-            return result
-            
-        except Exception as e:
-            # Fall back to regular parsing if LLM fails
-            return self._parse_metadata(metadata, isbn, source)
     
     def _merge_results(self, results: List[Dict], isbn: str) -> Dict:
         """
@@ -408,16 +251,10 @@ class ISBNService:
         """
         if not results:
             return {}
-        
         if len(results) == 1:
             return results[0]
-        
-        # Initialize merged result with the first result as base
         merged = results[0].copy()
-        
-        # Track which fields have been enhanced
         enhanced_fields = set()
-        
         for result in results[1:]:
             # Merge title - prefer longer/more complete titles
             current_title = merged.get('title', '')
@@ -425,7 +262,6 @@ class ISBNService:
             if len(new_title) > len(current_title) and new_title:
                 merged['title'] = new_title
                 enhanced_fields.add('title')
-            
             # Merge author - combine unique authors
             current_authors = merged.get('author', '')
             new_authors = result.get('author', '')
@@ -435,12 +271,10 @@ class ISBNService:
                 else:
                     merged['author'] = new_authors
                 enhanced_fields.add('author')
-            
             # Merge publisher - prefer non-empty publishers
             if not merged.get('publisher') and result.get('publisher'):
                 merged['publisher'] = result['publisher']
                 enhanced_fields.add('publisher')
-            
             # Merge publication date - prefer more specific dates
             current_year = merged.get('published_date', '')
             new_year = result.get('published_date', '')
@@ -449,7 +283,6 @@ class ISBNService:
                 merged['d_o_pub'] = new_year
                 merged['year'] = new_year
                 enhanced_fields.add('published_date')
-            
             # Merge ISBNs - combine all unique ISBNs
             current_isbns = set(merged.get('isbn', '').split('; ') if merged.get('isbn') else [])
             new_isbns = set(result.get('isbn', '').split('; ') if result.get('isbn') else [])
@@ -457,17 +290,14 @@ class ISBNService:
             if all_isbns:
                 merged['isbn'] = '; '.join(sorted(all_isbns))
                 enhanced_fields.add('isbn')
-            
             # Merge language - prefer more specific language info
             if not merged.get('language') and result.get('language'):
                 merged['language'] = result['language']
                 enhanced_fields.add('language')
-            
             # Merge format - prefer more specific format info
             if not merged.get('format') and result.get('format'):
                 merged['format'] = result['format']
                 enhanced_fields.add('format')
-            
             # Merge subjects - combine unique subjects
             current_subjects = merged.get('subjects', '')
             new_subjects = result.get('subjects', '')
@@ -477,29 +307,16 @@ class ISBNService:
                 else:
                     merged['subjects'] = new_subjects
                 enhanced_fields.add('subjects')
-            
             # Merge OCLC and LC numbers - prefer non-empty values
             if not merged.get('oclc_no') and result.get('oclc_no'):
                 merged['oclc_no'] = result['oclc_no']
                 enhanced_fields.add('oclc_no')
-            
             if not merged.get('lc_no') and result.get('lc_no'):
                 merged['lc_no'] = result['lc_no']
                 enhanced_fields.add('lc_no')
-        
         # Update source to indicate merged results
         sources = list(set([r.get('source', '') for r in results if r.get('source')]))
         merged['source'] = f"merged_{'_'.join(sources)}"
-        
-        # Mark as LLM enhanced if any result was LLM enhanced
-        llm_enhanced_count = sum(1 for r in results if r.get('llm_enhanced', False))
-        if llm_enhanced_count > 0:
-            merged['llm_enhanced'] = True
-            print(f"🔍 Merge: {llm_enhanced_count}/{len(results)} results were LLM enhanced")
-        else:
-            merged['llm_enhanced'] = False
-            print(f"🔍 Merge: No LLM enhanced results found")
-        
         return merged
     
     def validate_isbn(self, isbn: str) -> bool:
@@ -514,22 +331,21 @@ class ISBNService:
             clean_isbn = isbnlib.clean(isbn)
             if not clean_isbn:
                 return False
-            
             return isbnlib.is_isbn10(clean_isbn) or isbnlib.is_isbn13(clean_isbn)
         except:
             return False
-    
-    
+
 # Convenience functions
-def quick_isbn_search(isbn: str, debug: bool = False, use_llm: bool = True, merge_results: bool = True, **kwargs) -> Optional[Dict]:
-    """Quick ISBN search with enhanced service, optional LLM parsing, and result merging"""
-    service = ISBNService(debug=debug, use_llm=use_llm, **kwargs)
+
+def quick_isbn_search(isbn: str, debug: bool = False, merge_results: bool = True, **kwargs) -> Optional[Dict]:
+    """Quick ISBN search with enhanced service and result merging (No LLM)"""
+    service = ISBNService(debug=debug, **kwargs)
     return service.search_by_isbn(isbn, merge_results=merge_results)
 
 def quick_title_search(title: str, authors: Optional[List[str]] = None, 
-                      debug: bool = False, use_llm: bool = True, merge_results: bool = True, **kwargs) -> Optional[Dict]:
-    """Quick title/author search with enhanced service, optional LLM parsing, and result merging"""
-    service = ISBNService(debug=debug, use_llm=use_llm, **kwargs)
+                      debug: bool = False, merge_results: bool = True, **kwargs) -> Optional[Dict]:
+    """Quick title/author search with enhanced service and result merging (No LLM)"""
+    service = ISBNService(debug=debug, **kwargs)
     return service.search_by_title_author(title, authors)
 
 def validate_isbn(isbn: str) -> bool:
