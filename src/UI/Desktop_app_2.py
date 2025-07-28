@@ -13,7 +13,7 @@ if project_root not in sys.path:
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
     QLabel, QTextEdit, QGroupBox, QSizePolicy, QProgressBar, QMessageBox, QComboBox,
-    QFrame, QScrollArea, QGridLayout, QSpacerItem
+    QFrame, QScrollArea, QGridLayout, QSpacerItem, QTabWidget
 )
 from PyQt6.QtGui import QPixmap, QImage, QFont, QPalette, QColor, QIcon, QPainter, QLinearGradient
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve, QRect, QPropertyAnimation, QParallelAnimationGroup
@@ -27,6 +27,11 @@ from src.utils.isbn_detection import extract_and_validate_isbns
 from src.utils.database_cloud import create_table, insert_book, search_book
 
 from src.vision.gemini_processing import process_book_images
+from src.metadata.llm_metadata_combiner import llm_metadata_combiner
+from src.utils.google_books import search_book_by_isbn, search_book_by_title_author, extract_book_metadata
+from src.utils.openlibrary import OpenLibraryAPI
+from src.utils.LOC import LOCConverter
+from src.utils.isbnlib_service import ISBNService
 
 class ModernButton(QPushButton):
     """Custom modern button with hover effects and animations (dark mode)"""
@@ -261,12 +266,28 @@ class ModernCameraWidget(QWidget):
         # Try up to 5 camera indices, only include if a frame can be read
         available = []
         for i in range(5):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) if platform.system() == 'Windows' else cv2.VideoCapture(i)
-            if cap is not None and cap.isOpened():
-                ret, _ = cap.read()
-                if ret:
-                    available.append(f"Camera {i}")
-                cap.release()
+            try:
+                # Try different backends on Windows
+                if platform.system() == 'Windows':
+                    # Try DirectShow first
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if not cap.isOpened():
+                        # Try MSMF backend
+                        cap = cv2.VideoCapture(i, cv2.CAP_MSMF)
+                    if not cap.isOpened():
+                        # Try default backend
+                        cap = cv2.VideoCapture(i)
+                else:
+                    cap = cv2.VideoCapture(i)
+                
+                if cap is not None and cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        available.append(f"Camera {i}")
+                    cap.release()
+            except Exception as e:
+                print(f"Camera {i} test failed: {e}")
+                continue
         if not available:
             available = ["Camera 0"]
         return available
@@ -276,13 +297,21 @@ class ModernCameraWidget(QWidget):
         self.stop_camera()
 
     def start_camera(self):
-        # Use DirectShow backend on Windows for better compatibility
+        # Try different backends on Windows for better compatibility
         if platform.system() == 'Windows':
+            # Try DirectShow first
             self.camera = cv2.VideoCapture(self.selected_camera_index, cv2.CAP_DSHOW)
+            if not self.camera.isOpened():
+                # Try MSMF backend
+                self.camera = cv2.VideoCapture(self.selected_camera_index, cv2.CAP_MSMF)
+            if not self.camera.isOpened():
+                # Try default backend
+                self.camera = cv2.VideoCapture(self.selected_camera_index)
         else:
             self.camera = cv2.VideoCapture(self.selected_camera_index)
             
         if self.camera.isOpened():
+            print(f"✅ Camera {self.selected_camera_index} opened successfully")
             self.timer.start(30)
             self.start_btn.setEnabled(False)
             self.capture_btn.setEnabled(True)
@@ -291,7 +320,8 @@ class ModernCameraWidget(QWidget):
             # Add success animation
             self.animate_button_success(self.start_btn)
         else:
-            QMessageBox.warning(self, "Camera Error", "Could not open camera")
+            print(f"❌ Failed to open camera {self.selected_camera_index}")
+            QMessageBox.warning(self, "Camera Error", "Could not open camera. Please check if camera is connected and not in use by another application.")
 
     def stop_camera(self):
         if self.camera:
@@ -503,18 +533,58 @@ class ModernBookAcquisitionApp(QMainWindow):
         content_layout.addLayout(left_panel, 2)
         right_panel = QVBoxLayout()
         right_panel.setSpacing(10)
-        results_group = QGroupBox("📖 Extracted Metadata")
-        results_layout = QVBoxLayout(results_group)
-        self.results_text = QTextEdit()
-        self.results_text.setPlaceholderText("📋 Metadata will appear here after processing...\n\n💡 Tips:\n• Ensure good lighting for better OCR results\n• Hold the book steady during capture\n• Include the entire cover in the frame")
-        self.results_text.setMinimumHeight(300)
-        self.results_text.setReadOnly(True)
-        results_layout.addWidget(self.results_text)
-        right_panel.addWidget(results_group)
-        confidence_group = QGroupBox("📊 Confidence Analysis")
-        confidence_layout = QVBoxLayout(confidence_group)
-        self.confidence_text = QLabel("No data available")
-        self.confidence_text.setStyleSheet("""
+        
+        # Create tab widget for metadata display
+        metadata_tabs = QTabWidget()
+        metadata_tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 2px solid #333;
+                border-radius: 8px;
+                background-color: #23272e;
+            }
+            QTabBar::tab {
+                background-color: #181c20;
+                color: #fff;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+            QTabBar::tab:selected {
+                background-color: #1976d2;
+            }
+            QTabBar::tab:hover {
+                background-color: #1565c0;
+            }
+        """)
+        
+        # Gemini Metadata Tab
+        gemini_tab = QWidget()
+        gemini_layout = QVBoxLayout(gemini_tab)
+        self.gemini_results_text = QTextEdit()
+        self.gemini_results_text.setPlaceholderText("🤖 Gemini Vision metadata will appear here...\n\n💡 This shows the initial extraction from the book images")
+        self.gemini_results_text.setMinimumHeight(300)
+        self.gemini_results_text.setReadOnly(True)
+        gemini_layout.addWidget(self.gemini_results_text)
+        metadata_tabs.addTab(gemini_tab, "🤖 Gemini Vision")
+        
+        # Final Metadata Tab
+        final_tab = QWidget()
+        final_layout = QVBoxLayout(final_tab)
+        self.final_results_text = QTextEdit()
+        self.final_results_text.setPlaceholderText("📚 Final unified metadata will appear here...\n\n💡 This shows the best possible metadata from all sources")
+        self.final_results_text.setMinimumHeight(300)
+        self.final_results_text.setReadOnly(True)
+        final_layout.addWidget(self.final_results_text)
+        metadata_tabs.addTab(final_tab, "📚 Final Metadata")
+        
+        right_panel.addWidget(metadata_tabs)
+        
+        # Database Status Group
+        db_group = QGroupBox("🗄️ Database Status")
+        db_layout = QVBoxLayout(db_group)
+        self.db_status_text = QLabel("No data available")
+        self.db_status_text.setStyleSheet("""
             QLabel {
                 padding: 10px;
                 background-color: #181c20;
@@ -523,9 +593,9 @@ class ModernBookAcquisitionApp(QMainWindow):
                 font-size: 12px;
             }
         """)
-        self.confidence_text.setWordWrap(True)
-        confidence_layout.addWidget(self.confidence_text)
-        right_panel.addWidget(confidence_group)
+        self.db_status_text.setWordWrap(True)
+        db_layout.addWidget(self.db_status_text)
+        right_panel.addWidget(db_group)
         content_layout.addLayout(right_panel, 3)
         main_layout.addLayout(content_layout)
 
@@ -567,63 +637,105 @@ class ModernBookAcquisitionApp(QMainWindow):
         self.processing_thread.progress_update.connect(self.progress_bar.setValue)
         self.processing_thread.start()
 
-    def on_processing_complete(self, metadata):
+    def on_processing_complete(self, gemini_metadata, unified_metadata):
         self.progress_bar.setVisible(False)
         self.capture_image_btn.setEnabled(True)
         self.process_btn.setEnabled(True)
         self.progress_label.setText("Processing complete ✓")
         self.progress_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: 600; margin-top: 5px;")
-        # Display results
-        if metadata:
-            result_text = "📚 Book Metadata\n" + "="*50 + "\n\n"
-            if metadata.get('title'):
-                result_text += f"📖 Title: {metadata['title']}\n\n"
-            if metadata.get('authors'):
-                result_text += f"✍️ Authors: {', '.join(metadata['authors'])}\n\n"
-            if metadata.get('isbn'):
-                result_text += f"🔢 ISBN: {metadata['isbn']}\n\n"
-            if metadata.get('isbn10'):
-                result_text += f"🔢 ISBN-10: {metadata['isbn10']}\n\n"
-            if metadata.get('isbn13'):
-                result_text += f"🔢 ISBN-13: {metadata['isbn13']}\n\n"
-            if metadata.get('publisher'):
-                result_text += f"🏢 Publisher: {metadata['publisher']}\n\n"
-            if metadata.get('year'):
-                result_text += f"📅 Year: {metadata['year']}\n\n"
-            if metadata.get('edition'):
-                result_text += f"📚 Edition: {metadata['edition']}\n\n"
-            if metadata.get('series'):
-                result_text += f"🔗 Series: {metadata['series']}\n\n"
-            if metadata.get('genre'):
-                result_text += f"🏷️ Genre: {metadata['genre']}\n\n"
-            if metadata.get('language'):
-                result_text += f"🌐 Language: {metadata['language']}\n\n"
-            if metadata.get('additional_text'):
-                result_text += f"📝 Additional Text: {metadata['additional_text']}\n\n"
-            self.results_text.setText(result_text)
-            # Confidence display (Gemini doesn't provide a confidence score, so just show a message)
-            confidence_html = f"""
-            <div style=\"padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px;\">
-                <h3 style=\"color: #2c3e50; margin: 0 0 10px 0;\">Gemini Vision Analysis</h3>
-                <div style=\"text-align: center; margin-top: 15px;\">
-                    <strong>Processed {len(self.captured_images)} image(s) with Gemini Vision</strong>
-                </div>
-            </div>
-            """
-            self.confidence_text.setText(confidence_html)
-            # Check if book exists in cloud DB
-            existing = search_book(isbn=metadata.get('isbn'), title=metadata.get('title'), authors=metadata.get('authors'))
-
-            if existing:
-                QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
-            else:
-                insert_book(metadata)
-                QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
-
+        
+        # Display Gemini metadata
+        if gemini_metadata:
+            gemini_text = "🤖 Gemini Vision Metadata\n" + "="*50 + "\n\n"
+            if gemini_metadata.get('title'):
+                gemini_text += f"📖 Title: {gemini_metadata['title']}\n\n"
+            if gemini_metadata.get('authors'):
+                gemini_text += f"✍️ Authors: {', '.join(gemini_metadata['authors'])}\n\n"
+            if gemini_metadata.get('isbn'):
+                gemini_text += f"🔢 ISBN: {gemini_metadata['isbn']}\n\n"
+            if gemini_metadata.get('isbn10'):
+                gemini_text += f"🔢 ISBN-10: {gemini_metadata['isbn10']}\n\n"
+            if gemini_metadata.get('isbn13'):
+                gemini_text += f"🔢 ISBN-13: {gemini_metadata['isbn13']}\n\n"
+            if gemini_metadata.get('publisher'):
+                gemini_text += f"🏢 Publisher: {gemini_metadata['publisher']}\n\n"
+            if gemini_metadata.get('year'):
+                gemini_text += f"📅 Year: {gemini_metadata['year']}\n\n"
+            if gemini_metadata.get('edition'):
+                gemini_text += f"📚 Edition: {gemini_metadata['edition']}\n\n"
+            if gemini_metadata.get('series'):
+                gemini_text += f"🔗 Series: {gemini_metadata['series']}\n\n"
+            if gemini_metadata.get('genre'):
+                gemini_text += f"🏷️ Genre: {gemini_metadata['genre']}\n\n"
+            if gemini_metadata.get('language'):
+                gemini_text += f"🌐 Language: {gemini_metadata['language']}\n\n"
+            if gemini_metadata.get('additional_text'):
+                gemini_text += f"📝 Additional Text: {gemini_metadata['additional_text']}\n\n"
+            self.gemini_results_text.setText(gemini_text)
         else:
-            result_text = "❌ No metadata could be extracted.\n\n💡 Suggestions:\n• Ensure good lighting\n• Hold the book steady\n• Include the entire cover\n• Try different angles"
-            self.confidence_text.setText("No confidence data available")
-            self.results_text.setText(result_text)
+            self.gemini_results_text.setText("❌ No Gemini metadata could be extracted.")
+        
+        # Display final unified metadata
+        if unified_metadata:
+            final_text = "📚 Final Unified Metadata\n" + "="*50 + "\n\n"
+            if unified_metadata.get('title'):
+                final_text += f"📖 Title: {unified_metadata['title']}\n\n"
+            if unified_metadata.get('authors'):
+                final_text += f"✍️ Authors: {', '.join(unified_metadata['authors'])}\n\n"
+            if unified_metadata.get('isbn'):
+                final_text += f"🔢 ISBN: {unified_metadata['isbn']}\n\n"
+            if unified_metadata.get('isbn10'):
+                final_text += f"🔢 ISBN-10: {unified_metadata['isbn10']}\n\n"
+            if unified_metadata.get('isbn13'):
+                final_text += f"🔢 ISBN-13: {unified_metadata['isbn13']}\n\n"
+            if unified_metadata.get('publisher'):
+                final_text += f"🏢 Publisher: {unified_metadata['publisher']}\n\n"
+            if unified_metadata.get('published_date'):
+                final_text += f"📅 Published Date: {unified_metadata['published_date']}\n\n"
+            if unified_metadata.get('edition'):
+                final_text += f"📚 Edition: {unified_metadata['edition']}\n\n"
+            if unified_metadata.get('series'):
+                final_text += f"🔗 Series: {unified_metadata['series']}\n\n"
+            if unified_metadata.get('genre'):
+                final_text += f"🏷️ Genre: {unified_metadata['genre']}\n\n"
+            if unified_metadata.get('language'):
+                final_text += f"🌐 Language: {unified_metadata['language']}\n\n"
+            if unified_metadata.get('lccn'):
+                final_text += f"📋 LCCN: {unified_metadata['lccn']}\n\n"
+            if unified_metadata.get('oclc_no'):
+                final_text += f"🔢 OCLC: {unified_metadata['oclc_no']}\n\n"
+            if unified_metadata.get('additional_text'):
+                final_text += f"📝 Additional Text: {unified_metadata['additional_text']}\n\n"
+            self.final_results_text.setText(final_text)
+            
+            # Database operations with unified metadata
+            try:
+                existing = search_book(
+                    isbn=unified_metadata.get('isbn'), 
+                    title=unified_metadata.get('title'), 
+                    authors=unified_metadata.get('authors')
+                )
+                
+                if existing:
+                    db_status = "✅ Book already exists in database"
+                    QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
+                else:
+                    insert_success = insert_book(unified_metadata)
+                    if insert_success:
+                        db_status = "📚 Book metadata saved to database"
+                        QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
+                    else:
+                        db_status = "⚠️ Database not available - book not saved"
+                        QMessageBox.warning(self, "Database Error", "⚠️ Database not available - book metadata not saved.")
+                
+                self.db_status_text.setText(db_status)
+            except Exception as e:
+                db_status = f"❌ Database error: {str(e)}"
+                self.db_status_text.setText(db_status)
+                QMessageBox.warning(self, "Database Error", f"Database operation failed: {str(e)}")
+        else:
+            self.final_results_text.setText("❌ No unified metadata could be generated.")
+            self.db_status_text.setText("❌ No data to save to database")
 
     def on_processing_error(self, error_message):
         self.progress_bar.setVisible(False)
@@ -644,27 +756,119 @@ class ModernBookAcquisitionApp(QMainWindow):
         else:
             return "🔴"  # Red - Very low confidence
 
-# New GeminiProcessingThread for Gemini-based processing
+# Enhanced GeminiProcessingThread with external API integration
 from PyQt6.QtCore import QThread, pyqtSignal
 class GeminiProcessingThread(QThread):
-    processing_complete = pyqtSignal(dict)
+    processing_complete = pyqtSignal(dict, dict)  # (gemini_metadata, unified_metadata)
     processing_error = pyqtSignal(str)
     progress_update = pyqtSignal(int)
+    
     def __init__(self, image_list):
         super().__init__()
         self.image_list = image_list
+    
+    def extract_all_isbns(self, metadata):
+        """Extract all ISBNs from metadata dictionary"""
+        isbns = []
+        if metadata.get('isbn'):
+            isbns.append(metadata['isbn'])
+        if metadata.get('isbn10'):
+            isbns.append(metadata['isbn10'])
+        if metadata.get('isbn13'):
+            isbns.append(metadata['isbn13'])
+        return isbns
+    
     def run(self):
         try:
-            self.progress_update.emit(10)
-            # Use Gemini processing pipeline
-            metadata = process_book_images(self.image_list, prompt_type="comprehensive", infer_missing=True)
+            # Step 1: Process images with Gemini (20%)
+            self.progress_update.emit(20)
+            gemini_metadata = process_book_images(self.image_list, prompt_type="comprehensive", infer_missing=True)
+            
+            # Step 2: Extract ISBNs (30%)
+            self.progress_update.emit(30)
+            isbns = self.extract_all_isbns(gemini_metadata)
+            
+            # Step 3: Query external APIs (60%)
+            self.progress_update.emit(60)
+            gb_data = {}
+            ol_data = {}
+            loc_data = {}
+            isbnlib_data = {}
+            
+            if isbns:
+                # Google Books
+                try:
+                    for isbn in isbns:
+                        gb_result = search_book_by_isbn(isbn)
+                        if gb_result:
+                            gb_data = extract_book_metadata(gb_result)
+                            break
+                except Exception as e:
+                    print(f"Google Books API error: {e}")
+                
+                # OpenLibrary
+                try:
+                    ol_api = OpenLibraryAPI()
+                    for isbn in isbns:
+                        ol_result = ol_api.search_by_isbn(isbn)
+                        if ol_result:
+                            ol_data = ol_result
+                            break
+                except Exception as e:
+                    print(f"OpenLibrary API error: {e}")
+                
+                # LOC for LCCN
+                try:
+                    loc_converter = LOCConverter()
+                    loc_results_raw = loc_converter.get_lccn_for_isbns(isbns)
+                    lccn_value = next((lccn for lccn in loc_results_raw.values() if lccn), None)
+                    loc_data = {'lccn': lccn_value} if lccn_value else {}
+                except Exception as e:
+                    print(f"LOC API error: {e}")
+                
+                # isbnlib
+                try:
+                    isbn_service = ISBNService()
+                    for isbn in isbns:
+                        isbnlib_result = isbn_service.search_by_isbn(isbn)
+                        if isbnlib_result:
+                            isbnlib_data = isbnlib_result
+                            break
+                except Exception as e:
+                    print(f"isbnlib error: {e}")
+            
+            # Step 4: Merge metadata with LLM (90%)
+            self.progress_update.emit(90)
+            try:
+                unified_metadata = llm_metadata_combiner(
+                    gemini_metadata, gb_data, ol_data, loc_data, isbnlib_data, debug=False
+                )
+            except Exception as e:
+                print(f"LLM combiner error: {e}")
+                # Fallback to simple merge
+                unified_metadata = gemini_metadata.copy()
+                if gb_data:
+                    unified_metadata.update(gb_data)
+                if ol_data:
+                    unified_metadata.update(ol_data)
+                if loc_data:
+                    unified_metadata.update(loc_data)
+                if isbnlib_data:
+                    unified_metadata.update(isbnlib_data)
+            
+            # Step 5: Complete (100%)
             self.progress_update.emit(100)
-            self.processing_complete.emit(metadata)
+            self.processing_complete.emit(gemini_metadata, unified_metadata)
+            
         except Exception as e:
             self.processing_error.emit(str(e))
 
 def main():
-    create_table()
+    # Try to create table, but don't fail if database is unavailable
+    db_success = create_table()
+    if not db_success:
+        print("⚠️ Database not available - app will run without database functionality")
+    
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
     

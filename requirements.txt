@@ -40,6 +40,7 @@ PyQt6==6.6.1
 PyQt6-Qt6==6.6.1
 PyQt6-sip==13.6.0
 
+
 # UI & Dashboard (Legacy - keeping for reference)
 streamlit>=1.35.0  # For simple web-based UI
 plotly>=5.22.0     # For data visualization (optional)

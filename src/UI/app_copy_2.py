@@ -26,6 +26,28 @@ def fuzzy_match(a, b):
     """Return a similarity ratio between two strings (0-1) using difflib."""
     return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
+def extract_all_isbns(metadata):
+    """
+    Extract all unique ISBNs (10 and 13) from a metadata dict.
+    Handles fields: isbn, isbn10, isbn_10, isbn13, isbn_13.
+    """
+    isbn_fields = ['isbn', 'isbn10', 'isbn_10', 'isbn13', 'isbn_13']
+    isbns = set()
+    for field in isbn_fields:
+        value = metadata.get(field)
+        if not value:
+            continue
+        if isinstance(value, list):
+            for v in value:
+                if v and isinstance(v, str):
+                    isbns.add(v.strip())
+        elif isinstance(value, str):
+            for v in value.replace(';', ',').split(','):
+                v = v.strip()
+                if v:
+                    isbns.add(v)
+    return [isbn for isbn in isbns if isbn]
+
 def get_unified_metadata(title, authors, isbns, lccns=None, edition=None, gemini_data=None, google_books_data=None, openlibrary_data=None, loc_data=None, isbnlib_data=None, debug=False):
     """
     Enhanced: Use Gemini's ISBN(s) for all lookups, and merge all metadata using the LLM combiner.
@@ -218,12 +240,8 @@ if both_images_ready:
         st.json(combined_metadata)
         
         # Extract ISBNs for further processing
-        isbns = []
-        if combined_metadata.get('isbn'):
-            if isinstance(combined_metadata['isbn'], list):
-                isbns = combined_metadata['isbn']
-            elif isinstance(combined_metadata['isbn'], str):
-                isbns = [combined_metadata['isbn']]
+        isbns = extract_all_isbns(combined_metadata)
+        print(f"[DEBUG] ISBNs sent to LOC: {isbns}")
 
         # Get LOC LCCN data
         loc_results_raw = {}

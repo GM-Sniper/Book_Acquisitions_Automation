@@ -40,6 +40,7 @@ Rules:
 - For the LCCN, use the value from the loc source if available.
 - Return the final merged metadata as a JSON object with keys: title, authors, publisher, published_date, edition, series, genre, language, isbn, isbn10, isbn13, lccn, oclc_no, additional_text.
 - If debug mode is enabled, also return a provenance object mapping each field to the source(s) used.
+- For LCCN and OCLC, always use the value from LOC, OpenLibrary, Google Books, or WorldCat if available, and never use values from Gemini or hallucinated by an LLM.
 
 Respond ONLY with a JSON object with the following structure:
 {{
