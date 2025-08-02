@@ -13,7 +13,8 @@ if project_root not in sys.path:
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
     QLabel, QTextEdit, QGroupBox, QSizePolicy, QProgressBar, QMessageBox, QComboBox,
-    QFrame, QScrollArea, QGridLayout, QSpacerItem, QTabWidget
+    QFrame, QScrollArea, QGridLayout, QSpacerItem, QTabWidget, QDialog, QLineEdit,
+    QFormLayout, QDialogButtonBox, QTextEdit, QCheckBox, QSpinBox, QDateEdit
 )
 from PyQt6.QtGui import QPixmap, QImage, QFont, QPalette, QColor, QIcon, QPainter, QLinearGradient
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve, QRect, QPropertyAnimation, QParallelAnimationGroup
@@ -249,14 +250,10 @@ class ModernCameraWidget(QWidget):
         controls_layout.setContentsMargins(12, 10, 12, 10)
         self.start_btn = ModernButton("▶ Start Camera", "#388e3c", "#2e7031")
         self.start_btn.clicked.connect(self.start_camera)
-        self.capture_btn = ModernButton("📸 Capture", "#1976d2", "#1565c0")
-        self.capture_btn.clicked.connect(self.capture_image)
-        self.capture_btn.setEnabled(False)
         self.stop_btn = ModernButton("⏹ Stop Camera", "#d32f2f", "#b71c1c")
         self.stop_btn.clicked.connect(self.stop_camera)
         self.stop_btn.setEnabled(False)
         controls_layout.addWidget(self.start_btn)
-        controls_layout.addWidget(self.capture_btn)
         controls_layout.addWidget(self.stop_btn)
         controls_layout.addStretch()
         layout.addWidget(controls_frame)
@@ -314,7 +311,6 @@ class ModernCameraWidget(QWidget):
             print(f"✅ Camera {self.selected_camera_index} opened successfully")
             self.timer.start(30)
             self.start_btn.setEnabled(False)
-            self.capture_btn.setEnabled(True)
             self.stop_btn.setEnabled(True)
             
             # Add success animation
@@ -341,7 +337,6 @@ class ModernCameraWidget(QWidget):
                 }
             """)
             self.start_btn.setEnabled(True)
-            self.capture_btn.setEnabled(False)
             self.stop_btn.setEnabled(False)
 
     def update_frame(self):
@@ -385,8 +380,6 @@ class ModernCameraWidget(QWidget):
                     }
                 """)
                 
-                # Add capture animation
-                self.animate_button_success(self.capture_btn)
                 return frame
         return None
 
@@ -399,6 +392,327 @@ class ModernCameraWidget(QWidget):
         animation.setEndValue(original_geometry)
         animation.setEasingCurve(QEasingCurve.Type.OutBounce)
         animation.start()
+
+class MetadataReviewDialog(QDialog):
+    """Dialog for reviewing and editing metadata before database save"""
+    def __init__(self, metadata, parent=None):
+        super().__init__(parent)
+        self.metadata = metadata.copy()
+        self.setup_ui()
+        self.populate_fields()
+        
+    def setup_ui(self):
+        self.setWindowTitle("📚 Review & Edit Metadata")
+        self.setGeometry(200, 100, 800, 600)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #181c20;
+                color: #fff;
+            }
+            QLabel {
+                color: #fff;
+                font-weight: 600;
+            }
+            QLineEdit, QTextEdit, QSpinBox, QDateEdit {
+                background-color: #23272e;
+                border: 2px solid #333;
+                border-radius: 6px;
+                padding: 8px;
+                color: #fff;
+                font-size: 12px;
+            }
+            QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QDateEdit:focus {
+                border-color: #1976d2;
+            }
+            QPushButton {
+                background-color: #1976d2;
+                color: #fff;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: 600;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #1565c0;
+            }
+            QPushButton:pressed {
+                background-color: #0d47a1;
+            }
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                color: #fff;
+                border: 2px solid #333;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #23272e;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 8px 0 8px;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        
+        # Header
+        header_label = QLabel("📚 Review & Edit Book Metadata")
+        header_label.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_label.setStyleSheet("color: #fff; margin-bottom: 10px;")
+        layout.addWidget(header_label)
+        
+        # Instructions
+        instructions = QLabel("💡 Review the extracted metadata below. You can edit any field or add missing information before saving to the database.")
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("color: #b3c6e0; font-size: 12px; margin-bottom: 15px; padding: 10px; background-color: #23272e; border-radius: 6px;")
+        layout.addWidget(instructions)
+        
+        # Create scrollable form
+        scroll_area = QScrollArea()
+        scroll_widget = QWidget()
+        form_layout = QFormLayout(scroll_widget)
+        form_layout.setSpacing(15)
+        
+        # Basic Information Group
+        basic_group = QGroupBox("📖 Basic Information")
+        basic_layout = QFormLayout(basic_group)
+        
+        self.title_edit = QLineEdit()
+        self.title_edit.setPlaceholderText("Enter book title...")
+        basic_layout.addRow("📖 Title:", self.title_edit)
+        
+        self.authors_edit = QLineEdit()
+        self.authors_edit.setPlaceholderText("Enter authors (separate with commas)...")
+        basic_layout.addRow("✍️ Authors:", self.authors_edit)
+        
+        self.publisher_edit = QLineEdit()
+        self.publisher_edit.setPlaceholderText("Enter publisher...")
+        basic_layout.addRow("🏢 Publisher:", self.publisher_edit)
+        
+        self.year_spinbox = QSpinBox()
+        self.year_spinbox.setRange(1000, 2100)
+        self.year_spinbox.setValue(2024)
+        basic_layout.addRow("📅 Publication Year:", self.year_spinbox)
+        
+        self.edition_edit = QLineEdit()
+        self.edition_edit.setPlaceholderText("Enter edition (e.g., 1st, 2nd, etc.)...")
+        basic_layout.addRow("📚 Edition:", self.edition_edit)
+        
+        form_layout.addRow(basic_group)
+        
+        # ISBN Information Group
+        isbn_group = QGroupBox("🔢 ISBN Information")
+        isbn_layout = QFormLayout(isbn_group)
+        
+        self.isbn10_edit = QLineEdit()
+        self.isbn10_edit.setPlaceholderText("Enter ISBN-10...")
+        isbn_layout.addRow("🔢 ISBN-10:", self.isbn10_edit)
+        
+        self.isbn13_edit = QLineEdit()
+        self.isbn13_edit.setPlaceholderText("Enter ISBN-13...")
+        isbn_layout.addRow("🔢 ISBN-13:", self.isbn13_edit)
+        
+        form_layout.addRow(isbn_group)
+        
+        # Additional Information Group
+        additional_group = QGroupBox("📋 Additional Information")
+        additional_layout = QFormLayout(additional_group)
+        
+        self.series_edit = QLineEdit()
+        self.series_edit.setPlaceholderText("Enter series name...")
+        additional_layout.addRow("🔗 Series:", self.series_edit)
+        
+        self.genre_edit = QLineEdit()
+        self.genre_edit.setPlaceholderText("Enter genre...")
+        additional_layout.addRow("🏷️ Genre:", self.genre_edit)
+        
+        self.language_edit = QLineEdit()
+        self.language_edit.setPlaceholderText("Enter language...")
+        additional_layout.addRow("🌐 Language:", self.language_edit)
+        
+        self.lccn_edit = QLineEdit()
+        self.lccn_edit.setPlaceholderText("Enter LCCN...")
+        additional_layout.addRow("📋 LCCN:", self.lccn_edit)
+        
+        self.oclc_edit = QLineEdit()
+        self.oclc_edit.setPlaceholderText("Enter OCLC number...")
+        additional_layout.addRow("🔢 OCLC:", self.oclc_edit)
+        
+        self.additional_text_edit = QTextEdit()
+        self.additional_text_edit.setMaximumHeight(80)
+        self.additional_text_edit.setPlaceholderText("Enter any additional notes or information...")
+        additional_layout.addRow("📝 Additional Notes:", self.additional_text_edit)
+        
+        form_layout.addRow(additional_group)
+        
+        # Quality Check Group
+        quality_group = QGroupBox("✅ Quality Check")
+        quality_layout = QFormLayout(quality_group)
+        
+        self.confidence_label = QLabel("Extraction Confidence")
+        self.confidence_label.setStyleSheet("color: #4caf50; font-weight: 600;")
+        quality_layout.addRow("🎯 Confidence:", self.confidence_label)
+        
+        self.word_count_label = QLabel("0 words extracted")
+        self.word_count_label.setStyleSheet("color: #b3c6e0;")
+        quality_layout.addRow("📊 Words Extracted:", self.word_count_label)
+        
+        form_layout.addRow(quality_group)
+        
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        self.save_btn = ModernButton("💾 Save to Database", "#28a745", "#218838")
+        self.save_btn.clicked.connect(self.accept)
+        
+        self.cancel_btn = ModernButton("❌ Cancel", "#dc3545", "#c82333")
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        self.preview_btn = ModernButton("👁️ Preview", "#17a2b8", "#138496")
+        self.preview_btn.clicked.connect(self.show_preview)
+        
+        button_layout.addWidget(self.preview_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.cancel_btn)
+        button_layout.addWidget(self.save_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def populate_fields(self):
+        """Populate form fields with extracted metadata"""
+        if self.metadata.get('title'):
+            self.title_edit.setText(self.metadata['title'])
+        
+        if self.metadata.get('authors'):
+            if isinstance(self.metadata['authors'], list):
+                self.authors_edit.setText(', '.join(self.metadata['authors']))
+            else:
+                self.authors_edit.setText(str(self.metadata['authors']))
+        
+        if self.metadata.get('publisher'):
+            self.publisher_edit.setText(self.metadata['publisher'])
+        
+        if self.metadata.get('year'):
+            try:
+                year = int(self.metadata['year'])
+                self.year_spinbox.setValue(year)
+            except (ValueError, TypeError):
+                pass
+        
+        if self.metadata.get('edition'):
+            self.edition_edit.setText(self.metadata['edition'])
+        
+        if self.metadata.get('isbn10'):
+            self.isbn10_edit.setText(self.metadata['isbn10'])
+        
+        if self.metadata.get('isbn13'):
+            self.isbn13_edit.setText(self.metadata['isbn13'])
+        
+        if self.metadata.get('series'):
+            self.series_edit.setText(self.metadata['series'])
+        
+        if self.metadata.get('genre'):
+            # Convert list to comma-separated string if it's a list
+            genre_value = self.metadata['genre']
+            if isinstance(genre_value, list):
+                genre_value = ', '.join(genre_value)
+            self.genre_edit.setText(genre_value)
+        
+        if self.metadata.get('language'):
+            self.language_edit.setText(self.metadata['language'])
+        
+        if self.metadata.get('lccn'):
+            self.lccn_edit.setText(self.metadata['lccn'])
+        
+        if self.metadata.get('oclc_no'):
+            self.oclc_edit.setText(self.metadata['oclc_no'])
+        
+        if self.metadata.get('additional_text'):
+            self.additional_text_edit.setText(self.metadata['additional_text'])
+        
+        # Set confidence and word count
+        confidence = self.metadata.get('confidence', 0.0)
+        if confidence > 0.8:
+            confidence_color = "#4caf50"
+            confidence_text = "High"
+        elif confidence > 0.6:
+            confidence_color = "#ff9800"
+            confidence_text = "Medium"
+        else:
+            confidence_color = "#f44336"
+            confidence_text = "Low"
+        
+        self.confidence_label.setText(f"{confidence_text} ({confidence:.1%})")
+        self.confidence_label.setStyleSheet(f"color: {confidence_color}; font-weight: 600;")
+        
+        word_count = self.metadata.get('word_count', 0)
+        self.word_count_label.setText(f"{word_count} words extracted")
+    
+    def get_edited_metadata(self):
+        """Get the edited metadata from form fields"""
+        edited_metadata = self.metadata.copy()
+        
+        edited_metadata['title'] = self.title_edit.text().strip()
+        edited_metadata['authors'] = [author.strip() for author in self.authors_edit.text().split(',') if author.strip()]
+        edited_metadata['publisher'] = self.publisher_edit.text().strip()
+        edited_metadata['year'] = str(self.year_spinbox.value())
+        edited_metadata['edition'] = self.edition_edit.text().strip()
+        edited_metadata['isbn10'] = self.isbn10_edit.text().strip()
+        edited_metadata['isbn13'] = self.isbn13_edit.text().strip()
+        edited_metadata['series'] = self.series_edit.text().strip()
+        edited_metadata['genre'] = self.genre_edit.text().strip()
+        edited_metadata['language'] = self.language_edit.text().strip()
+        edited_metadata['lccn'] = self.lccn_edit.text().strip()
+        edited_metadata['oclc_no'] = self.oclc_edit.text().strip()
+        edited_metadata['additional_text'] = self.additional_text_edit.toPlainText().strip()
+        
+        # Remove empty fields
+        edited_metadata = {k: v for k, v in edited_metadata.items() if v}
+        
+        return edited_metadata
+    
+    def show_preview(self):
+        """Show a preview of the metadata as it will appear in the database"""
+        edited_metadata = self.get_edited_metadata()
+        
+        preview_text = "📚 Metadata Preview\n" + "="*50 + "\n\n"
+        
+        if edited_metadata.get('title'):
+            preview_text += f"📖 Title: {edited_metadata['title']}\n\n"
+        if edited_metadata.get('authors'):
+            preview_text += f"✍️ Authors: {', '.join(edited_metadata['authors'])}\n\n"
+        if edited_metadata.get('publisher'):
+            preview_text += f"🏢 Publisher: {edited_metadata['publisher']}\n\n"
+        if edited_metadata.get('year'):
+            preview_text += f"📅 Year: {edited_metadata['year']}\n\n"
+        if edited_metadata.get('edition'):
+            preview_text += f"📚 Edition: {edited_metadata['edition']}\n\n"
+        if edited_metadata.get('isbn10'):
+            preview_text += f"🔢 ISBN-10: {edited_metadata['isbn10']}\n\n"
+        if edited_metadata.get('isbn13'):
+            preview_text += f"🔢 ISBN-13: {edited_metadata['isbn13']}\n\n"
+        if edited_metadata.get('series'):
+            preview_text += f"🔗 Series: {edited_metadata['series']}\n\n"
+        if edited_metadata.get('genre'):
+            preview_text += f"🏷️ Genre: {edited_metadata['genre']}\n\n"
+        if edited_metadata.get('language'):
+            preview_text += f"🌐 Language: {edited_metadata['language']}\n\n"
+        if edited_metadata.get('lccn'):
+            preview_text += f"📋 LCCN: {edited_metadata['lccn']}\n\n"
+        if edited_metadata.get('oclc_no'):
+            preview_text += f"🔢 OCLC: {edited_metadata['oclc_no']}\n\n"
+        if edited_metadata.get('additional_text'):
+            preview_text += f"📝 Additional Notes: {edited_metadata['additional_text']}\n\n"
+        
+        QMessageBox.information(self, "Metadata Preview", preview_text)
 
 class ModernBookAcquisitionApp(QMainWindow):
     def __init__(self):
@@ -502,6 +816,14 @@ class ModernBookAcquisitionApp(QMainWindow):
         self.captured_count_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         self.captured_count_label.setStyleSheet("color: #fff; margin-bottom: 2px;")
         status_layout.addWidget(self.captured_count_label)
+        
+        # Add helpful tip label
+        self.capture_tip_label = QLabel("💡 Tip: Capture front cover, back cover, and any pages with text for best results!")
+        self.capture_tip_label.setFont(QFont("Segoe UI", 9))
+        self.capture_tip_label.setStyleSheet("color: #4caf50; font-style: italic; margin-bottom: 5px;")
+        self.capture_tip_label.setWordWrap(True)
+        status_layout.addWidget(self.capture_tip_label)
+        
         self.captured_list_label = QLabel("")
         self.captured_list_label.setFont(QFont("Segoe UI", 10))
         self.captured_list_label.setStyleSheet("color: #b3c6e0;")
@@ -510,14 +832,28 @@ class ModernBookAcquisitionApp(QMainWindow):
         # Single capture button
         capture_group = QGroupBox("📸 Capture Controls")
         capture_layout = QHBoxLayout(capture_group)
-        self.capture_image_btn = ModernButton("📸 Capture Image", "#1976d2", "#1565c0")
+        self.capture_image_btn = ModernButton("📸 Capture Image", "#28a745", "#218838")
         self.capture_image_btn.clicked.connect(self.capture_image)
+        self.capture_image_btn.setToolTip("Click to capture the current camera frame. You can capture multiple images!")
         capture_layout.addWidget(self.capture_image_btn)
         # Process button
         self.process_btn = ModernButton("⚡ Process Images", "#388e3c", "#2e7031")
         self.process_btn.setEnabled(False)
         self.process_btn.clicked.connect(self.start_processing)
         capture_layout.addWidget(self.process_btn)
+        
+        # Review Metadata button
+        self.review_btn = ModernButton("📝 Review Metadata", "#17a2b8", "#138496")
+        self.review_btn.setEnabled(False)
+        self.review_btn.clicked.connect(self.review_metadata)
+        capture_layout.addWidget(self.review_btn)
+        
+        # Next Book/Reset button
+        self.reset_btn = ModernButton("🔄 Next Book / Reset", "#6f42c1", "#5a32a3")
+        self.reset_btn.setEnabled(False)
+        self.reset_btn.clicked.connect(self.reset_for_next_book)
+        self.reset_btn.setToolTip("Clear current data and prepare for the next book")
+        capture_layout.addWidget(self.reset_btn)
         left_panel.addWidget(capture_group)
         progress_group = QGroupBox("⚡ Processing Progress")
         progress_layout = QVBoxLayout(progress_group)
@@ -608,14 +944,91 @@ class ModernBookAcquisitionApp(QMainWindow):
             self.captured_images.append(image)
             self.update_capture_status()
             self.process_btn.setEnabled(True)
+            
+            # Show success notification
+            self.show_capture_notification(f"✅ Image {len(self.captured_images)} captured successfully!")
+            
+            # Prompt for more images if less than 2 captured
+            if len(self.captured_images) < 2:
+                QMessageBox.information(self, "Capture More Images", 
+                    f"Great! You've captured {len(self.captured_images)} image(s).\n\n"
+                    "💡 Tip: Capture multiple images for better results:\n"
+                    "• Front cover\n"
+                    "• Back cover\n"
+                    "• Any additional pages with text\n\n"
+                    "You can capture as many images as you want!")
+            elif len(self.captured_images) == 2:
+                QMessageBox.information(self, "Good Progress!", 
+                    "Excellent! You've captured 2 images.\n\n"
+                    "You can continue capturing more images if needed, "
+                    "or click 'Process Images' when you're ready.")
+            else:
+                QMessageBox.information(self, "Multiple Images Captured", 
+                    f"Perfect! You've captured {len(self.captured_images)} images.\n\n"
+                    "You can continue capturing more or click 'Process Images' when ready.")
+    
+    def show_capture_notification(self, message):
+        """Show a green notification popup"""
+        notification = QMessageBox(self)
+        notification.setIcon(QMessageBox.Icon.Information)
+        notification.setText(message)
+        notification.setWindowTitle("Image Captured")
+        notification.setStyleSheet("""
+            QMessageBox {
+                background-color: #23272e;
+                color: #fff;
+            }
+            QMessageBox QLabel {
+                color: #fff;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            QPushButton {
+                background-color: #28a745;
+                color: #fff;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 600;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        notification.exec()
 
     def update_capture_status(self):
         count = len(self.captured_images)
         self.captured_count_label.setText(f"Captured Images: {count}")
+        
+        # Update tip based on number of images
+        if count == 0:
+            self.capture_tip_label.setText("💡 Tip: Capture front cover, back cover, and any pages with text for best results!")
+            self.capture_tip_label.setStyleSheet("color: #4caf50; font-style: italic; margin-bottom: 5px;")
+        elif count == 1:
+            self.capture_tip_label.setText("✅ Good start! Now capture the back cover for ISBN information.")
+            self.capture_tip_label.setStyleSheet("color: #ff9800; font-style: italic; margin-bottom: 5px;")
+        elif count == 2:
+            self.capture_tip_label.setText("🎉 Excellent! You have front and back covers. You can capture more or process now!")
+            self.capture_tip_label.setStyleSheet("color: #28a745; font-style: italic; margin-bottom: 5px;")
+        else:
+            self.capture_tip_label.setText(f"🌟 Perfect! You have {count} images. Ready to process or capture more!")
+            self.capture_tip_label.setStyleSheet("color: #28a745; font-style: italic; margin-bottom: 5px;")
+        
         if count > 0:
-            self.captured_list_label.setText(", ".join([f"Captured {i+1}" for i in range(count)]))
+            image_types = []
+            if count >= 1:
+                image_types.append("Front cover")
+            if count >= 2:
+                image_types.append("Back cover")
+            if count > 2:
+                image_types.append(f"{count-2} additional image(s)")
+            
+            self.captured_list_label.setText(" | ".join(image_types))
         else:
             self.captured_list_label.setText("")
+        
         if count == 0:
             self.process_btn.setEnabled(False)
 
@@ -626,6 +1039,8 @@ class ModernBookAcquisitionApp(QMainWindow):
         # Disable buttons during processing
         self.capture_image_btn.setEnabled(False)
         self.process_btn.setEnabled(False)
+        self.review_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
         self.progress_label.setText("Processing... Please wait")
         self.progress_label.setStyleSheet("color: #fd7e14; font-size: 12px; font-weight: 600; margin-top: 5px;")
         self.progress_bar.setVisible(True)
@@ -641,8 +1056,13 @@ class ModernBookAcquisitionApp(QMainWindow):
         self.progress_bar.setVisible(False)
         self.capture_image_btn.setEnabled(True)
         self.process_btn.setEnabled(True)
+        self.review_btn.setEnabled(True)
+        self.reset_btn.setEnabled(True)
         self.progress_label.setText("Processing complete ✓")
         self.progress_label.setStyleSheet("color: #28a745; font-size: 12px; font-weight: 600; margin-top: 5px;")
+        
+        # Store the metadata for later review
+        self.current_unified_metadata = unified_metadata
         
         # Display Gemini metadata
         if gemini_metadata:
@@ -708,19 +1128,83 @@ class ModernBookAcquisitionApp(QMainWindow):
                 final_text += f"📝 Additional Text: {unified_metadata['additional_text']}\n\n"
             self.final_results_text.setText(final_text)
             
-            # Database operations with unified metadata
+            # Show metadata review dialog before database operations
+            review_dialog = MetadataReviewDialog(unified_metadata, self)
+            if review_dialog.exec() == QDialog.DialogCode.Accepted:
+                # User clicked "Save to Database"
+                edited_metadata = review_dialog.get_edited_metadata()
+                
+                # Database operations with edited metadata
+                try:
+                    existing = search_book(
+                        isbn=edited_metadata.get('isbn') or edited_metadata.get('isbn13') or edited_metadata.get('isbn10'), 
+                        title=edited_metadata.get('title'), 
+                        authors=edited_metadata.get('authors')
+                    )
+                    
+                    if existing:
+                        db_status = "✅ Book already exists in database"
+                        QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
+                    else:
+                        insert_success = insert_book(edited_metadata)
+                        if insert_success:
+                            db_status = "📚 Book metadata saved to database"
+                            QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
+                        else:
+                            db_status = "⚠️ Database not available - book not saved"
+                            QMessageBox.warning(self, "Database Error", "⚠️ Database not available - book metadata not saved.")
+                    
+                    self.db_status_text.setText(db_status)
+                except Exception as e:
+                    db_status = f"❌ Database error: {str(e)}"
+                    self.db_status_text.setText(db_status)
+                    QMessageBox.warning(self, "Database Error", f"Database operation failed: {str(e)}")
+            else:
+                # User clicked "Cancel"
+                db_status = "❌ Metadata review cancelled - book not saved"
+                self.db_status_text.setText(db_status)
+                QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. Book was not saved to database.")
+        else:
+            self.final_results_text.setText("❌ No unified metadata could be generated.")
+            self.db_status_text.setText("❌ No data to save to database")
+
+    def on_processing_error(self, error_message):
+        self.progress_bar.setVisible(False)
+        self.capture_image_btn.setEnabled(True)
+        self.process_btn.setEnabled(True)
+        self.review_btn.setEnabled(False)
+        self.reset_btn.setEnabled(True)
+        self.progress_label.setText("Processing failed ✗")
+        self.progress_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: 600; margin-top: 5px;")
+        QMessageBox.critical(self, "Processing Error", f"An error occurred during processing:\n{error_message}")
+
+    def review_metadata(self):
+        """Open metadata review dialog for manual editing"""
+        if not hasattr(self, 'current_unified_metadata') or not self.current_unified_metadata:
+            QMessageBox.warning(self, "No Metadata", "No metadata available for review. Please process images first.")
+            return
+        
+        review_dialog = MetadataReviewDialog(self.current_unified_metadata, self)
+        if review_dialog.exec() == QDialog.DialogCode.Accepted:
+            # User clicked "Save to Database"
+            edited_metadata = review_dialog.get_edited_metadata()
+            
+            # Update the stored metadata
+            self.current_unified_metadata = edited_metadata
+            
+            # Database operations with edited metadata
             try:
                 existing = search_book(
-                    isbn=unified_metadata.get('isbn'), 
-                    title=unified_metadata.get('title'), 
-                    authors=unified_metadata.get('authors')
+                    isbn=edited_metadata.get('isbn') or edited_metadata.get('isbn13') or edited_metadata.get('isbn10'), 
+                    title=edited_metadata.get('title'), 
+                    authors=edited_metadata.get('authors')
                 )
                 
                 if existing:
                     db_status = "✅ Book already exists in database"
                     QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
                 else:
-                    insert_success = insert_book(unified_metadata)
+                    insert_success = insert_book(edited_metadata)
                     if insert_success:
                         db_status = "📚 Book metadata saved to database"
                         QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
@@ -734,16 +1218,47 @@ class ModernBookAcquisitionApp(QMainWindow):
                 self.db_status_text.setText(db_status)
                 QMessageBox.warning(self, "Database Error", f"Database operation failed: {str(e)}")
         else:
-            self.final_results_text.setText("❌ No unified metadata could be generated.")
-            self.db_status_text.setText("❌ No data to save to database")
+            # User clicked "Cancel"
+            QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. No changes were saved.")
 
-    def on_processing_error(self, error_message):
-        self.progress_bar.setVisible(False)
+    def reset_for_next_book(self):
+        """Reset the application state for processing the next book"""
+        # Clear captured images
+        self.captured_images.clear()
+        
+        # Reset UI state
         self.capture_image_btn.setEnabled(True)
-        self.process_btn.setEnabled(True)
-        self.progress_label.setText("Processing failed ✗")
-        self.progress_label.setStyleSheet("color: #dc3545; font-size: 12px; font-weight: 600; margin-top: 5px;")
-        QMessageBox.critical(self, "Processing Error", f"An error occurred during processing:\n{error_message}")
+        self.process_btn.setEnabled(False)
+        self.review_btn.setEnabled(False)
+        self.reset_btn.setEnabled(False)
+        
+        # Clear progress indicators
+        self.progress_bar.setVisible(False)
+        self.progress_label.setText("Ready to process")
+        self.progress_label.setStyleSheet("color: #b3c6e0; font-size: 12px; margin-top: 2px;")
+        
+        # Clear metadata results
+        self.gemini_results_text.clear()
+        self.gemini_results_text.setPlaceholderText("🤖 Gemini Vision metadata will appear here...\n\n💡 This shows the initial extraction from the book images")
+        
+        self.final_results_text.clear()
+        self.final_results_text.setPlaceholderText("📚 Final unified metadata will appear here...\n\n💡 This shows the best possible metadata from all sources")
+        
+        # Clear database status
+        self.db_status_text.setText("No data available")
+        
+        # Update capture status
+        self.update_capture_status()
+        
+        # Clear stored metadata
+        if hasattr(self, 'current_unified_metadata'):
+            delattr(self, 'current_unified_metadata')
+        
+        # Show confirmation message
+        QMessageBox.information(self, "Reset Complete", 
+            "🔄 Application reset successfully!\n\n"
+            "✅ Ready to process the next book.\n"
+            "📸 You can now capture new images.")
 
     def get_confidence_indicator(self, confidence):
         """Get visual indicator for confidence level"""
