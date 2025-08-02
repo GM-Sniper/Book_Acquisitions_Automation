@@ -494,8 +494,9 @@ class MetadataReviewDialog(QDialog):
         basic_layout.addRow("🏢 Publisher:", self.publisher_edit)
         
         self.year_spinbox = QSpinBox()
-        self.year_spinbox.setRange(1000, 2100)
-        self.year_spinbox.setValue(2024)
+        self.year_spinbox.setRange(0, 2100)  # Allow 0 for empty/null
+        self.year_spinbox.setValue(0)  # Start with 0 (empty)
+        self.year_spinbox.setSpecialValueText("")  # Show empty text when value is 0
         basic_layout.addRow("📅 Publication Year:", self.year_spinbox)
         
         self.edition_edit = QLineEdit()
@@ -603,9 +604,12 @@ class MetadataReviewDialog(QDialog):
         if self.metadata.get('year'):
             try:
                 year = int(self.metadata['year'])
-                self.year_spinbox.setValue(year)
+                if year > 0:
+                    self.year_spinbox.setValue(year)
+                else:
+                    self.year_spinbox.setValue(0)  # Set to 0 (empty) for invalid years
             except (ValueError, TypeError):
-                pass
+                self.year_spinbox.setValue(0)  # Set to 0 (empty) for invalid years
         
         if self.metadata.get('edition'):
             self.edition_edit.setText(self.metadata['edition'])
@@ -663,7 +667,11 @@ class MetadataReviewDialog(QDialog):
         edited_metadata['title'] = self.title_edit.text().strip()
         edited_metadata['authors'] = [author.strip() for author in self.authors_edit.text().split(',') if author.strip()]
         edited_metadata['publisher'] = self.publisher_edit.text().strip()
-        edited_metadata['year'] = str(self.year_spinbox.value())
+        year_value = self.year_spinbox.value()
+        if year_value > 0:
+            edited_metadata['year'] = str(year_value)
+        else:
+            edited_metadata['year'] = None  # Set to None for empty/null
         edited_metadata['edition'] = self.edition_edit.text().strip()
         edited_metadata['isbn10'] = self.isbn10_edit.text().strip()
         edited_metadata['isbn13'] = self.isbn13_edit.text().strip()
@@ -1134,6 +1142,12 @@ class ModernBookAcquisitionApp(QMainWindow):
                 # User clicked "Save to Database"
                 edited_metadata = review_dialog.get_edited_metadata()
                 
+                # Update the stored metadata with edited version
+                self.current_unified_metadata = edited_metadata
+                
+                # Update the final results text with edited metadata
+                self.update_final_metadata_display(edited_metadata)
+                
                 # Database operations with edited metadata
                 try:
                     existing = search_book(
@@ -1192,6 +1206,9 @@ class ModernBookAcquisitionApp(QMainWindow):
             # Update the stored metadata
             self.current_unified_metadata = edited_metadata
             
+            # Update the final results text with edited metadata
+            self.update_final_metadata_display(edited_metadata)
+            
             # Database operations with edited metadata
             try:
                 existing = search_book(
@@ -1220,6 +1237,44 @@ class ModernBookAcquisitionApp(QMainWindow):
         else:
             # User clicked "Cancel"
             QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. No changes were saved.")
+
+    def update_final_metadata_display(self, metadata):
+        """Update the final metadata display with the given metadata"""
+        if metadata:
+            final_text = "📚 Final Unified Metadata\n" + "="*50 + "\n\n"
+            if metadata.get('title'):
+                final_text += f"📖 Title: {metadata['title']}\n\n"
+            if metadata.get('authors'):
+                final_text += f"✍️ Authors: {', '.join(metadata['authors'])}\n\n"
+            if metadata.get('isbn'):
+                final_text += f"🔢 ISBN: {metadata['isbn']}\n\n"
+            if metadata.get('isbn10'):
+                final_text += f"🔢 ISBN-10: {metadata['isbn10']}\n\n"
+            if metadata.get('isbn13'):
+                final_text += f"🔢 ISBN-13: {metadata['isbn13']}\n\n"
+            if metadata.get('publisher'):
+                final_text += f"🏢 Publisher: {metadata['publisher']}\n\n"
+            if metadata.get('published_date'):
+                final_text += f"📅 Published Date: {metadata['published_date']}\n\n"
+            if metadata.get('year'):
+                final_text += f"📅 Year: {metadata['year']}\n\n"
+            if metadata.get('edition'):
+                final_text += f"📚 Edition: {metadata['edition']}\n\n"
+            if metadata.get('series'):
+                final_text += f"🔗 Series: {metadata['series']}\n\n"
+            if metadata.get('genre'):
+                final_text += f"🏷️ Genre: {metadata['genre']}\n\n"
+            if metadata.get('language'):
+                final_text += f"🌐 Language: {metadata['language']}\n\n"
+            if metadata.get('lccn'):
+                final_text += f"📋 LCCN: {metadata['lccn']}\n\n"
+            if metadata.get('oclc_no'):
+                final_text += f"🔢 OCLC: {metadata['oclc_no']}\n\n"
+            if metadata.get('additional_text'):
+                final_text += f"📝 Additional Text: {metadata['additional_text']}\n\n"
+            self.final_results_text.setText(final_text)
+        else:
+            self.final_results_text.setText("❌ No unified metadata could be generated.")
 
     def reset_for_next_book(self):
         """Reset the application state for processing the next book"""
