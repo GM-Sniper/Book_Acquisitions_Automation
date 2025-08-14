@@ -620,6 +620,18 @@ class MetadataReviewDialog(QDialog):
         if self.metadata.get('isbn13'):
             self.isbn13_edit.setText(self.metadata['isbn13'])
         
+        # Handle the general 'isbn' field - populate into isbn13 if it's 13 digits, otherwise isbn10
+        if self.metadata.get('isbn'):
+            isbn = self.metadata['isbn']
+            if len(isbn.replace('-', '').replace(' ', '')) == 13:
+                # If no isbn13 is set, use the general isbn
+                if not self.metadata.get('isbn13'):
+                    self.isbn13_edit.setText(isbn)
+            else:
+                # If no isbn10 is set, use the general isbn
+                if not self.metadata.get('isbn10'):
+                    self.isbn10_edit.setText(isbn)
+        
         if self.metadata.get('series'):
             self.series_edit.setText(self.metadata['series'])
         
@@ -682,10 +694,27 @@ class MetadataReviewDialog(QDialog):
         edited_metadata['oclc_no'] = self.oclc_edit.text().strip()
         edited_metadata['additional_text'] = self.additional_text_edit.toPlainText().strip()
         
-        # Remove empty fields
-        edited_metadata = {k: v for k, v in edited_metadata.items() if v}
+        # Set the general 'isbn' field based on isbn13 or isbn10
+        isbn13 = edited_metadata['isbn13']
+        isbn10 = edited_metadata['isbn10']
+        if isbn13:
+            edited_metadata['isbn'] = isbn13
+        elif isbn10:
+            edited_metadata['isbn'] = isbn10
+        else:
+            edited_metadata['isbn'] = None
         
-        return edited_metadata
+        # Remove completely empty fields (but keep fields with None values for display purposes)
+        # Only remove fields that are empty strings, empty lists, or None
+        cleaned_metadata = {}
+        for k, v in edited_metadata.items():
+            if v is not None and v != "" and v != []:
+                cleaned_metadata[k] = v
+            elif v is None:
+                # Keep None values for fields that were explicitly cleared
+                cleaned_metadata[k] = None
+        
+        return cleaned_metadata
     
     def show_preview(self):
         """Show a preview of the metadata as it will appear in the database"""
@@ -1148,6 +1177,15 @@ class ModernBookAcquisitionApp(QMainWindow):
                 # Update the final results text with edited metadata
                 self.update_final_metadata_display(edited_metadata)
                 
+                # Show confirmation that metadata was updated
+                QMessageBox.information(self, "Metadata Updated", 
+                    "✅ Metadata has been updated in the display!\n\n"
+                    "📝 You can see the changes reflected in the 'Final Unified Metadata' section.\n"
+                    "💾 The updated metadata will be saved to the database.")
+                
+                # Update database status to show metadata was edited
+                self.db_status_text.setText("✏️ Metadata edited - ready to save to database")
+                
                 # Database operations with edited metadata
                 try:
                     existing = search_book(
@@ -1229,6 +1267,9 @@ class ModernBookAcquisitionApp(QMainWindow):
                         db_status = "⚠️ Database not available - book not saved"
                         QMessageBox.warning(self, "Database Error", "⚠️ Database not available - book metadata not saved.")
                 
+                # Show what was saved for debugging purposes
+                print(f"DEBUG: Attempting to save metadata: {edited_metadata}")
+                
                 self.db_status_text.setText(db_status)
             except Exception as e:
                 db_status = f"❌ Database error: {str(e)}"
@@ -1242,36 +1283,98 @@ class ModernBookAcquisitionApp(QMainWindow):
         """Update the final metadata display with the given metadata"""
         if metadata:
             final_text = "📚 Final Unified Metadata\n" + "="*50 + "\n\n"
-            if metadata.get('title'):
-                final_text += f"📖 Title: {metadata['title']}\n\n"
-            if metadata.get('authors'):
-                final_text += f"✍️ Authors: {', '.join(metadata['authors'])}\n\n"
-            if metadata.get('isbn'):
-                final_text += f"🔢 ISBN: {metadata['isbn']}\n\n"
-            if metadata.get('isbn10'):
-                final_text += f"🔢 ISBN-10: {metadata['isbn10']}\n\n"
-            if metadata.get('isbn13'):
-                final_text += f"🔢 ISBN-13: {metadata['isbn13']}\n\n"
-            if metadata.get('publisher'):
-                final_text += f"🏢 Publisher: {metadata['publisher']}\n\n"
-            if metadata.get('published_date'):
-                final_text += f"📅 Published Date: {metadata['published_date']}\n\n"
-            if metadata.get('year'):
-                final_text += f"📅 Year: {metadata['year']}\n\n"
-            if metadata.get('edition'):
-                final_text += f"📚 Edition: {metadata['edition']}\n\n"
-            if metadata.get('series'):
-                final_text += f"🔗 Series: {metadata['series']}\n\n"
-            if metadata.get('genre'):
-                final_text += f"🏷️ Genre: {metadata['genre']}\n\n"
-            if metadata.get('language'):
-                final_text += f"🌐 Language: {metadata['language']}\n\n"
-            if metadata.get('lccn'):
-                final_text += f"📋 LCCN: {metadata['lccn']}\n\n"
-            if metadata.get('oclc_no'):
-                final_text += f"🔢 OCLC: {metadata['oclc_no']}\n\n"
-            if metadata.get('additional_text'):
-                final_text += f"📝 Additional Text: {metadata['additional_text']}\n\n"
+            
+            # Show all fields, including those that were cleared (None values)
+            if 'title' in metadata:
+                if metadata['title']:
+                    final_text += f"📖 Title: {metadata['title']}\n\n"
+                else:
+                    final_text += f"📖 Title: [Cleared]\n\n"
+            
+            if 'authors' in metadata:
+                if metadata['authors']:
+                    final_text += f"✍️ Authors: {', '.join(metadata['authors'])}\n\n"
+                else:
+                    final_text += f"✍️ Authors: [Cleared]\n\n"
+            
+            if 'isbn' in metadata:
+                if metadata['isbn']:
+                    final_text += f"🔢 ISBN: {metadata['isbn']}\n\n"
+                else:
+                    final_text += f"🔢 ISBN: [Cleared]\n\n"
+            
+            if 'isbn10' in metadata:
+                if metadata['isbn10']:
+                    final_text += f"🔢 ISBN-10: {metadata['isbn10']}\n\n"
+                else:
+                    final_text += f"🔢 ISBN-10: [Cleared]\n\n"
+            
+            if 'isbn13' in metadata:
+                if metadata['isbn13']:
+                    final_text += f"🔢 ISBN-13: {metadata['isbn13']}\n\n"
+                else:
+                    final_text += f"🔢 ISBN-13: [Cleared]\n\n"
+            
+            if 'publisher' in metadata:
+                if metadata['publisher']:
+                    final_text += f"🏢 Publisher: {metadata['publisher']}\n\n"
+                else:
+                    final_text += f"🏢 Publisher: [Cleared]\n\n"
+            
+            if 'published_date' in metadata:
+                if metadata['published_date']:
+                    final_text += f"📅 Published Date: {metadata['published_date']}\n\n"
+                else:
+                    final_text += f"📅 Published Date: [Cleared]\n\n"
+            
+            if 'year' in metadata:
+                if metadata['year']:
+                    final_text += f"📅 Year: {metadata['year']}\n\n"
+                else:
+                    final_text += f"📅 Year: [Cleared]\n\n"
+            
+            if 'edition' in metadata:
+                if metadata['edition']:
+                    final_text += f"📚 Edition: {metadata['edition']}\n\n"
+                else:
+                    final_text += f"📚 Edition: [Cleared]\n\n"
+            
+            if 'series' in metadata:
+                if metadata['series']:
+                    final_text += f"🔗 Series: {metadata['series']}\n\n"
+                else:
+                    final_text += f"🔗 Series: [Cleared]\n\n"
+            
+            if 'genre' in metadata:
+                if metadata['genre']:
+                    final_text += f"🏷️ Genre: {metadata['genre']}\n\n"
+                else:
+                    final_text += f"🏷️ Genre: [Cleared]\n\n"
+            
+            if 'language' in metadata:
+                if metadata['language']:
+                    final_text += f"🌐 Language: {metadata['language']}\n\n"
+                else:
+                    final_text += f"🌐 Language: [Cleared]\n\n"
+            
+            if 'lccn' in metadata:
+                if metadata['lccn']:
+                    final_text += f"📋 LCCN: {metadata['lccn']}\n\n"
+                else:
+                    final_text += f"📋 LCCN: [Cleared]\n\n"
+            
+            if 'oclc_no' in metadata:
+                if metadata['oclc_no']:
+                    final_text += f"🔢 OCLC: {metadata['oclc_no']}\n\n"
+                else:
+                    final_text += f"🔢 OCLC: [Cleared]\n\n"
+            
+            if 'additional_text' in metadata:
+                if metadata['additional_text']:
+                    final_text += f"📝 Additional Text: {metadata['additional_text']}\n\n"
+                else:
+                    final_text += f"📝 Additional Text: [Cleared]\n\n"
+            
             self.final_results_text.setText(final_text)
         else:
             self.final_results_text.setText("❌ No unified metadata could be generated.")
