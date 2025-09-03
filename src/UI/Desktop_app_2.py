@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import platform
 import threading
 import tempfile
@@ -652,7 +653,14 @@ class MetadataReviewDialog(QDialog):
             self.oclc_edit.setText(self.metadata['oclc_no'])
         
         if self.metadata.get('additional_text'):
-            self.additional_text_edit.setText(self.metadata['additional_text'])
+            additional = self.metadata['additional_text']
+            if isinstance(additional, dict):
+                try:
+                    self.additional_text_edit.setPlainText(json.dumps(additional, ensure_ascii=False, indent=2))
+                except Exception:
+                    self.additional_text_edit.setPlainText(str(additional))
+            else:
+                self.additional_text_edit.setText(str(additional))
         
         # Set confidence and word count
         confidence = self.metadata.get('confidence', 0.0)
