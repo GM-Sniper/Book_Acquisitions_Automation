@@ -12,6 +12,7 @@ pandas==2.3.0
 numpy==2.3.0
 requests==2.32.3
 xmltodict==0.13.0
+openpyxl>=3.1.2
 
 # WorldCat API (uses existing requests library)
 

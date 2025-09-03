@@ -26,7 +26,10 @@ from src.vision.preprocessing import preprocess_image
 from src.vision.OCR_Processing import extract_text_with_confidence
 from src.metadata.metadata_extraction import extract_metadata_with_gemini, metadata_combiner
 from src.utils.isbn_detection import extract_and_validate_isbns
-from src.utils.database_cloud import create_table, insert_book, search_book
+# Switched from cloud database to Excel-based storage
+import pandas as pd
+from pathlib import Path
+import re
 
 from src.vision.gemini_processing import process_book_images
 from src.metadata.llm_metadata_combiner import llm_metadata_combiner
@@ -572,7 +575,7 @@ class MetadataReviewDialog(QDialog):
         # Buttons
         button_layout = QHBoxLayout()
         
-        self.save_btn = ModernButton("💾 Save to Database", "#28a745", "#218838")
+        self.save_btn = ModernButton("💾 Save to Excel", "#28a745", "#218838")
         self.save_btn.clicked.connect(self.accept)
         
         self.cancel_btn = ModernButton("❌ Cancel", "#dc3545", "#c82333")
@@ -624,7 +627,7 @@ class MetadataReviewDialog(QDialog):
         # Handle the general 'isbn' field - populate into isbn13 if it's 13 digits, otherwise isbn10
         if self.metadata.get('isbn'):
             isbn = self.metadata['isbn']
-            if len(isbn.replace('-', '').replace(' ', '')) == 13:
+            if isbn and len(str(isbn).replace('-', '').replace(' ', '')) == 13:
                 # If no isbn13 is set, use the general isbn
                 if not self.metadata.get('isbn13'):
                     self.isbn13_edit.setText(isbn)
@@ -705,9 +708,9 @@ class MetadataReviewDialog(QDialog):
         # Set the general 'isbn' field based on isbn13 or isbn10
         isbn13 = edited_metadata['isbn13']
         isbn10 = edited_metadata['isbn10']
-        if isbn13:
+        if isbn13 and isbn13.strip():
             edited_metadata['isbn'] = isbn13
-        elif isbn10:
+        elif isbn10 and isbn10.strip():
             edited_metadata['isbn'] = isbn10
         else:
             edited_metadata['isbn'] = None
@@ -770,6 +773,241 @@ class ModernBookAcquisitionApp(QMainWindow):
         # Setup modern styling
         self.setup_styles()
         self.setup_ui()
+        # Initialize Excel storage
+        self.excel_path = self.get_default_excel_path()
+        self.ensure_excel_file_exists(self.excel_path)
+
+    # =====================
+    # Excel helper methods
+    # =====================
+    def get_default_excel_path(self) -> str:
+        base_dir = Path(project_root) / "database"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        return str(base_dir / "AUC_records_005.xlsx")
+
+    def ensure_excel_file_exists(self, excel_path: str):
+        path_obj = Path(excel_path)
+        if not path_obj.exists():
+            df = pd.DataFrame(columns=["TITLE", "AUTHOR", "PUBLISHED", "D.O. Pub.", "OCLC no.", "LC no.", "ISBN", "AUC no."])
+            df.to_excel(path_obj, index=False)
+
+    def read_excel(self) -> pd.DataFrame:
+        try:
+            return pd.read_excel(self.excel_path, dtype=str).fillna("")
+        except Exception:
+            return pd.DataFrame(columns=["TITLE", "AUTHOR", "PUBLISHED", "D.O. Pub.", "OCLC no.", "LC no.", "ISBN", "AUC no."])  # fallback
+
+    # Datavbase integration (root folder with existing records for duplicate checking)
+    def get_datavbase_dir(self) -> Path:
+        return Path(project_root) / "database"
+
+    def _standardize_external_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Attempt to map varying column names to author/title/isbn
+        cols_lower = {c.lower(): c for c in df.columns}
+        def pick(*cands):
+            for cand in cands:
+                for key, orig in cols_lower.items():
+                    if cand in key:
+                        return orig
+            return None
+        author_col = pick("author", "authors", "creator", "writer", "by", "author")
+        title_col = pick("title", "book title", "name", "title")
+        isbn_col = pick("isbn13", "isbn-13", "isbn10", "isbn-10", "isbn", "isbn")
+        published_col = pick("published", "publisher", "pub", "publishing")
+        year_col = pick("year", "date", "d.o. pub.", "publication year")
+        oclc_col = pick("oclc", "oclc no.", "oclc_no", "oclc number")
+        lc_col = pick("lc", "lc no.", "lccn", "lc_no", "library of congress")
+        out = pd.DataFrame({
+            "TITLE": df.get(title_col, "").astype(str),
+            "AUTHOR": df.get(author_col, "").astype(str),
+            "PUBLISHED": df.get(published_col, "").astype(str),
+            "D.O. Pub.": df.get(year_col, "").astype(str),
+            "OCLC no.": df.get(oclc_col, "").astype(str),
+            "LC no.": df.get(lc_col, "").astype(str),
+            "ISBN": df.get(isbn_col, "").astype(str),
+            "AUC no.": "",  # Will be auto-generated
+        })
+        return out.fillna("")
+
+    def load_datavbase_records(self) -> pd.DataFrame:
+        base = self.get_datavbase_dir()
+        if not base.exists():
+            return pd.DataFrame(columns=["TITLE", "AUTHOR", "PUBLISHED", "D.O. Pub.", "OCLC no.", "LC no.", "ISBN", "AUC no."]).fillna("")
+        frames = []
+        for path in base.rglob("*"):
+            try:
+                if path.suffix.lower() in [".xlsx", ".xlsm", ".xlsb", ".xls"]:
+                    df = pd.read_excel(path, dtype=str)
+                    frames.append(self._standardize_external_df(df))
+                elif path.suffix.lower() in [".csv", ".tsv"]:
+                    sep = "\t" if path.suffix.lower() == ".tsv" else ","
+                    df = pd.read_csv(path, dtype=str, sep=sep, encoding_errors="ignore")
+                    frames.append(self._standardize_external_df(df))
+            except Exception:
+                # Skip unreadable files
+                continue
+        if frames:
+            return pd.concat(frames, ignore_index=True).fillna("")
+        return pd.DataFrame(columns=["TITLE", "AUTHOR", "PUBLISHED", "D.O. Pub.", "OCLC no.", "LC no.", "ISBN", "AUC no."]).fillna("")
+
+    def normalize_author(self, authors_value) -> str:
+        if isinstance(authors_value, list):
+            authors_text = ", ".join([str(a).strip() for a in authors_value if str(a).strip()])
+        else:
+            authors_text = str(authors_value or "").strip()
+        return authors_text.lower()
+
+    def normalize_title(self, title_value) -> str:
+        raw = str(title_value or "").lower()
+        # Remove bracketed/parenthetical content and subtitles after colon
+        raw = re.sub(r"\([^)]*\)", " ", raw)
+        raw = raw.split(":")[0]
+        # Remove non-alphanumeric characters
+        raw = re.sub(r"[^a-z0-9\s]", " ", raw)
+        # Collapse whitespace
+        raw = re.sub(r"\s+", " ", raw).strip()
+        return raw
+
+    def normalize_isbn(self, isbn_value) -> str:
+        isbn_text = str(isbn_value or "")
+        return "".join(ch for ch in isbn_text if ch.isdigit())
+
+    def extract_year_from_text(self, value) -> str:
+        text = str(value or "")
+        # Match a 4-digit year between 1000 and 2099 anywhere in the string
+        m = re.search(r"\b(1\d{3}|20\d{2})\b", text)
+        return m.group(1) if m else ""
+
+    def build_record_from_metadata(self, metadata: dict) -> dict:
+        authors_text = ", ".join(metadata.get("authors", [])) if isinstance(metadata.get("authors"), list) else str(metadata.get("authors", "")).strip()
+        isbn_value = metadata.get("isbn") or metadata.get("isbn13") or metadata.get("isbn10") or ""
+        
+        # Build publisher string
+        publisher = metadata.get("publisher", "")
+        raw_year_or_date = metadata.get("year", metadata.get("published_date", ""))
+        published_str = f"{publisher}: {raw_year_or_date}" if publisher and raw_year_or_date else (publisher or raw_year_or_date or "")
+        
+        # Extract clean 4-digit year
+        year_only = self.extract_year_from_text(raw_year_or_date)
+        
+        # Generate AUC number (simple increment based on existing records)
+        existing_df = self.read_excel()
+        next_auc_num = len(existing_df) + 1
+        auc_number = f"b{next_auc_num:07d}x"
+        
+        return {
+            "TITLE": str(metadata.get("title", "")).strip(),
+            "AUTHOR": authors_text.strip(),
+            "PUBLISHED": published_str,
+            "D.O. Pub.": year_only,
+            "OCLC no.": str(metadata.get("oclc_no", "")).strip(),
+            "LC no.": str(metadata.get("lccn", "")).strip(),
+            "ISBN": self.normalize_isbn(isbn_value),
+            "AUC no.": auc_number,
+        }
+
+    def _tokenize(self, text: str) -> set:
+        if not text:
+            return set()
+        text = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+        return set([tok for tok in text.split() if tok])
+
+    def _jaccard(self, a: set, b: set) -> float:
+        if not a or not b:
+            return 0.0
+        inter = len(a & b)
+        union = len(a | b)
+        return inter / union if union else 0.0
+
+    def _author_tokens(self, author_text: str) -> set:
+        # Normalize common separators and invert "Last, First"
+        text = author_text.replace("&", ",").replace(" and ", ", ")
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        tokens = []
+        for p in parts:
+            # If looks like Lastname Firstname, keep tokens anyway
+            tokens.extend(self._tokenize(p))
+        return set(tokens)
+
+    def is_duplicate_record(self, record: dict, df: pd.DataFrame) -> bool:
+        if df.empty:
+            return False
+        # Normalize dataframe for comparison
+        df_norm = df.copy()
+        df_norm["author_norm"] = df_norm["AUTHOR"].astype(str).str.strip().str.lower()
+        df_norm["title_norm"] = df_norm["TITLE"].astype(str).str.strip().str.lower()
+        df_norm["isbn_norm"] = df_norm["ISBN"].astype(str).apply(lambda x: "".join(ch for ch in x if ch.isdigit()))
+
+        isbn_norm = self.normalize_isbn(record.get("ISBN", ""))
+        author_norm = self.normalize_author(record.get("AUTHOR", ""))
+        title_norm = self.normalize_title(record.get("TITLE", ""))
+
+        # Prefer ISBN match if available
+        if isbn_norm:
+            if (df_norm["isbn_norm"] == isbn_norm).any():
+                return True
+        # Fallback to fuzzy author+title match
+        if author_norm and title_norm:
+            # Precompute tokens
+            rec_title_tokens = self._tokenize(title_norm)
+            rec_author_tokens = self._author_tokens(author_norm)
+            # Iterate rows (vectorizing true fuzzy is complex without extra deps)
+            for _, row in df_norm.iterrows():
+                row_title = self.normalize_title(row.get("TITLE", ""))
+                row_author = str(row.get("AUTHOR", "")).lower().strip()
+                title_sim = self._jaccard(rec_title_tokens, self._tokenize(row_title))
+                author_sim = self._jaccard(rec_author_tokens, self._author_tokens(row_author))
+                # Heuristic thresholds: tolerate messy data
+                if title_sim >= 0.6 and author_sim >= 0.5:
+                    return True
+                # Extra rule: strong title match and any author last-name overlap
+                if title_sim >= 0.75 and (rec_author_tokens & self._author_tokens(row_author)):
+                    return True
+        return False
+
+    def append_record_to_excel(self, record: dict) -> bool:
+        try:
+            # Combine existing local Excel with datavbase records for duplicate checks
+            df_local = self.read_excel()
+            df_ext = self.load_datavbase_records()
+            df_all = pd.concat([df_local, df_ext], ignore_index=True)
+            if self.is_duplicate_record(record, df_all):
+                return False  # duplicate, not appended
+
+            new_df = pd.concat([df_local, pd.DataFrame([record])], ignore_index=True)
+
+            # Ensure directory exists
+            target_path = Path(self.excel_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Enforce .xlsx extension (avoid accidental '.xls?' or other invalid suffixes)
+            if target_path.suffix.lower() not in (".xlsx", ".xlsm"):
+                target_path = target_path.with_suffix(".xlsx")
+
+            try:
+                new_df.to_excel(target_path, index=False)
+                self.excel_path = str(target_path)
+                return True
+            except PermissionError:
+                # If the file is open in Excel or locked, write to a fallback file
+                from datetime import datetime
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                fallback = target_path.with_name(f"{target_path.stem}_{ts}{target_path.suffix}")
+                try:
+                    new_df.to_excel(fallback, index=False)
+                    QMessageBox.information(self, "Excel Locked",
+                                            f"The main file is locked. Saved to fallback: {fallback}")
+                    # Keep original path for future attempts
+                    return True
+                except Exception as e2:
+                    QMessageBox.warning(self, "Excel Error",
+                                         f"Failed to write to Excel (locked?): {target_path}\n"
+                                         f"Also failed fallback: {fallback}\nError: {e2}\n\n"
+                                         f"Tip: Close the Excel workbook if it's open and try again.")
+                    return False
+        except Exception as e:
+            QMessageBox.warning(self, "Excel Error", f"Failed to write to Excel: {e}")
+            return False
 
     def setup_styles(self):
         self.setStyleSheet("""
@@ -961,10 +1199,10 @@ class ModernBookAcquisitionApp(QMainWindow):
         
         right_panel.addWidget(metadata_tabs)
         
-        # Database Status Group
-        db_group = QGroupBox("🗄️ Database Status")
+        # Excel Status Group
+        db_group = QGroupBox("📄 Excel Status")
         db_layout = QVBoxLayout(db_group)
-        self.db_status_text = QLabel("No data available")
+        self.db_status_text = QLabel("No Excel activity yet")
         self.db_status_text.setStyleSheet("""
             QLabel {
                 padding: 10px;
@@ -1173,10 +1411,10 @@ class ModernBookAcquisitionApp(QMainWindow):
                 final_text += f"📝 Additional Text: {unified_metadata['additional_text']}\n\n"
             self.final_results_text.setText(final_text)
             
-            # Show metadata review dialog before database operations
+            # Show metadata review dialog before saving to Excel
             review_dialog = MetadataReviewDialog(unified_metadata, self)
             if review_dialog.exec() == QDialog.DialogCode.Accepted:
-                # User clicked "Save to Database"
+                # User clicked "Save to Excel"
                 edited_metadata = review_dialog.get_edited_metadata()
                 
                 # Update the stored metadata with edited version
@@ -1185,48 +1423,27 @@ class ModernBookAcquisitionApp(QMainWindow):
                 # Update the final results text with edited metadata
                 self.update_final_metadata_display(edited_metadata)
                 
-                # Show confirmation that metadata was updated
-                QMessageBox.information(self, "Metadata Updated", 
-                    "✅ Metadata has been updated in the display!\n\n"
-                    "📝 You can see the changes reflected in the 'Final Unified Metadata' section.\n"
-                    "💾 The updated metadata will be saved to the database.")
-                
-                # Update database status to show metadata was edited
-                self.db_status_text.setText("✏️ Metadata edited - ready to save to database")
-                
-                # Database operations with edited metadata
-                try:
-                    existing = search_book(
-                        isbn=edited_metadata.get('isbn') or edited_metadata.get('isbn13') or edited_metadata.get('isbn10'), 
-                        title=edited_metadata.get('title'), 
-                        authors=edited_metadata.get('authors')
-                    )
-                    
-                    if existing:
-                        db_status = "✅ Book already exists in database"
-                        QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
+                # Save to Excel with duplicate check
+                record = self.build_record_from_metadata(edited_metadata)
+                df_existing = pd.concat([self.read_excel(), self.load_datavbase_records()], ignore_index=True)
+                if self.is_duplicate_record(record, df_existing):
+                    status_text = "✅ Duplicate detected. Not added to Excel."
+                    QMessageBox.information(self, "Duplicate", "This book already exists in the Excel file (matched by ISBN or Author+Title).")
+                else:
+                    if self.append_record_to_excel(record):
+                        status_text = "📄 Book saved to Excel."
+                        QMessageBox.information(self, "Saved", "Book metadata saved to Excel.")
                     else:
-                        insert_success = insert_book(edited_metadata)
-                        if insert_success:
-                            db_status = "📚 Book metadata saved to database"
-                            QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
-                        else:
-                            db_status = "⚠️ Database not available - book not saved"
-                            QMessageBox.warning(self, "Database Error", "⚠️ Database not available - book metadata not saved.")
-                    
-                    self.db_status_text.setText(db_status)
-                except Exception as e:
-                    db_status = f"❌ Database error: {str(e)}"
-                    self.db_status_text.setText(db_status)
-                    QMessageBox.warning(self, "Database Error", f"Database operation failed: {str(e)}")
+                        status_text = "❌ Failed to save to Excel."
+                self.db_status_text.setText(status_text)
             else:
                 # User clicked "Cancel"
-                db_status = "❌ Metadata review cancelled - book not saved"
-                self.db_status_text.setText(db_status)
-                QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. Book was not saved to database.")
+                status_text = "❌ Metadata review cancelled - not saved"
+                self.db_status_text.setText(status_text)
+                QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. Book was not saved to Excel.")
         else:
             self.final_results_text.setText("❌ No unified metadata could be generated.")
-            self.db_status_text.setText("❌ No data to save to database")
+            self.db_status_text.setText("❌ No data to save to Excel")
 
     def on_processing_error(self, error_message):
         self.progress_bar.setVisible(False)
@@ -1246,7 +1463,7 @@ class ModernBookAcquisitionApp(QMainWindow):
         
         review_dialog = MetadataReviewDialog(self.current_unified_metadata, self)
         if review_dialog.exec() == QDialog.DialogCode.Accepted:
-            # User clicked "Save to Database"
+            # User clicked "Save to Excel"
             edited_metadata = review_dialog.get_edited_metadata()
             
             # Update the stored metadata
@@ -1255,34 +1472,21 @@ class ModernBookAcquisitionApp(QMainWindow):
             # Update the final results text with edited metadata
             self.update_final_metadata_display(edited_metadata)
             
-            # Database operations with edited metadata
-            try:
-                existing = search_book(
-                    isbn=edited_metadata.get('isbn') or edited_metadata.get('isbn13') or edited_metadata.get('isbn10'), 
-                    title=edited_metadata.get('title'), 
-                    authors=edited_metadata.get('authors')
-                )
-                
-                if existing:
-                    db_status = "✅ Book already exists in database"
-                    QMessageBox.information(self, "Book Exists", "✅ This book already exists in the database.")
+            # Excel operations with edited metadata
+            record = self.build_record_from_metadata(edited_metadata)
+            df_existing = pd.concat([self.read_excel(), self.load_datavbase_records()], ignore_index=True)
+            if self.is_duplicate_record(record, df_existing):
+                status_text = "✅ Duplicate detected. Not added to Excel."
+                QMessageBox.information(self, "Duplicate", "This book already exists in the Excel file (matched by ISBN or Author+Title).")
+            else:
+                if self.append_record_to_excel(record):
+                    status_text = "📄 Book saved to Excel."
+                    QMessageBox.information(self, "Saved", "Book metadata saved to Excel.")
                 else:
-                    insert_success = insert_book(edited_metadata)
-                    if insert_success:
-                        db_status = "📚 Book metadata saved to database"
-                        QMessageBox.information(self, "Book Added", "📚 Book metadata saved to the cloud database.")
-                    else:
-                        db_status = "⚠️ Database not available - book not saved"
-                        QMessageBox.warning(self, "Database Error", "⚠️ Database not available - book metadata not saved.")
-                
-                # Show what was saved for debugging purposes
-                print(f"DEBUG: Attempting to save metadata: {edited_metadata}")
-                
-                self.db_status_text.setText(db_status)
-            except Exception as e:
-                db_status = f"❌ Database error: {str(e)}"
-                self.db_status_text.setText(db_status)
-                QMessageBox.warning(self, "Database Error", f"Database operation failed: {str(e)}")
+                    status_text = "❌ Failed to save to Excel."
+            # Debug print of what would be saved
+            print(f"DEBUG: Attempting to save record to Excel: {record}")
+            self.db_status_text.setText(status_text)
         else:
             # User clicked "Cancel"
             QMessageBox.information(self, "Review Cancelled", "📝 Metadata review was cancelled. No changes were saved.")
@@ -1450,6 +1654,9 @@ class GeminiProcessingThread(QThread):
     
     def extract_all_isbns(self, metadata):
         """Extract all ISBNs from metadata dictionary"""
+        if not metadata:
+            return []
+        
         isbns = []
         if metadata.get('isbn'):
             isbns.append(metadata['isbn'])
@@ -1464,6 +1671,11 @@ class GeminiProcessingThread(QThread):
             # Step 1: Process images with Gemini (20%)
             self.progress_update.emit(20)
             gemini_metadata = process_book_images(self.image_list, prompt_type="comprehensive", infer_missing=True)
+            
+            # Check if Gemini processing returned valid metadata
+            if not gemini_metadata:
+                gemini_metadata = {}  # Initialize empty dict if None
+                print("Warning: Gemini processing returned None, using empty metadata")
             
             # Step 2: Extract ISBNs (30%)
             self.progress_update.emit(30)
@@ -1537,6 +1749,11 @@ class GeminiProcessingThread(QThread):
                 if isbnlib_data:
                     unified_metadata.update(isbnlib_data)
             
+            # Ensure we have a valid metadata dictionary
+            if not unified_metadata:
+                unified_metadata = {}
+                print("Warning: No unified metadata generated, using empty dict")
+            
             # Step 5: Complete (100%)
             self.progress_update.emit(100)
             self.processing_complete.emit(gemini_metadata, unified_metadata)
@@ -1545,11 +1762,6 @@ class GeminiProcessingThread(QThread):
             self.processing_error.emit(str(e))
 
 def main():
-    # Try to create table, but don't fail if database is unavailable
-    db_success = create_table()
-    if not db_success:
-        print("⚠️ Database not available - app will run without database functionality")
-    
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
     
