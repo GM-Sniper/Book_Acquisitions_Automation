@@ -22,13 +22,25 @@ A modern, AI-powered desktop application for automating book metadata extraction
 ![Camera Capture](screenshots/camera_capture.png)
 *Camera interface with live preview and capture controls*
 
+### Multiple Images Upload
+![Multiple Images](screenshots/multiple_images.png)
+*Interface showing multiple book images uploaded (front cover, back cover, additional pages) ready for processing*
+
+### Processing State
+![Processing Ready](screenshots/processing.png)
+*Application state when all images are captured and are being processed*
+
 ### Metadata Review Dialog
 ![Metadata Review](screenshots/metadata_review.png)
 *Interactive dialog for reviewing and editing extracted metadata before saving*
 
-### Excel Export
-![Excel Export](screenshots/excel_export.png)
-*Sample Excel output showing the standardized AUC cataloging format*
+### Success Confirmation
+![Success Confirmation](screenshots/success_confirmation.png)
+*Success message and confirmation when book metadata is successfully saved to Excel file*
+
+### Duplicate Detection
+![Duplicate Detection](screenshots/duplicate_detection.png)
+*Interface showing duplicate detection results when a book already exists in the database*
 
 ## 🚀 Quick Start
 
