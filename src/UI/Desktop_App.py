@@ -2,9 +2,6 @@ import sys
 import os
 import json
 import platform
-import threading
-import tempfile
-from typing import Optional
 
 # Add the project root to sys.path so 'src' can be imported
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -13,27 +10,22 @@ if project_root not in sys.path:
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-    QLabel, QTextEdit, QGroupBox, QSizePolicy, QProgressBar, QMessageBox, QComboBox,
-    QFrame, QScrollArea, QGridLayout, QSpacerItem, QTabWidget, QDialog, QLineEdit,
-    QFormLayout, QDialogButtonBox, QTextEdit, QCheckBox, QSpinBox, QDateEdit
+    QLabel, QTextEdit, QGroupBox, QProgressBar, QMessageBox, QComboBox,
+    QFrame, QScrollArea, QTabWidget, QDialog, QLineEdit,
+    QFormLayout, QDialogButtonBox, QTextEdit, QSpinBox
 )
-from PyQt6.QtGui import QPixmap, QImage, QFont, QPalette, QColor, QIcon, QPainter, QLinearGradient
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve, QRect, QPropertyAnimation, QParallelAnimationGroup
+from PyQt6.QtGui import QPixmap, QImage, QFont
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve
 
 import cv2
 import numpy as np
-from src.vision.preprocessing import preprocess_image
-from src.vision.OCR_Processing import extract_text_with_confidence
-from src.metadata.metadata_extraction import extract_metadata_with_gemini, metadata_combiner
-from src.utils.isbn_detection import extract_and_validate_isbns
-# Switched from cloud database to Excel-based storage
 import pandas as pd
 from pathlib import Path
 import re
 
 from src.vision.gemini_processing import process_book_images
 from src.metadata.llm_metadata_combiner import llm_metadata_combiner
-from src.utils.google_books import search_book_by_isbn, search_book_by_title_author, extract_book_metadata
+from src.utils.google_books import search_book_by_isbn, extract_book_metadata
 from src.utils.openlibrary import OpenLibraryAPI
 from src.utils.LOC import LOCConverter
 from src.utils.isbnlib_service import ISBNService
@@ -71,115 +63,6 @@ class ModernButton(QPushButton):
         """)
         if icon:
             self.setIcon(icon)
-
-class StatusCard(QFrame):
-    """Modern status card with animations (dark mode)"""
-    def __init__(self, title, status="ready", parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.status = status
-        self.setup_ui()
-    def setup_ui(self):
-        self.setFrameStyle(QFrame.Shape.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #23272e;
-                border-radius: 12px;
-                border: 2px solid #333;
-            }
-        """)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 10, 16, 10)
-        title_label = QLabel(self.title)
-        title_label.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        title_label.setStyleSheet("color: #fff; margin-bottom: 2px;")
-        self.status_label = QLabel("Ready")
-        self.status_label.setFont(QFont("Segoe UI", 10))
-        self.status_label.setStyleSheet("color: #4caf50; font-weight: 600;")
-        layout.addWidget(title_label)
-        layout.addWidget(self.status_label)
-    def update_status(self, status, color="#4caf50"):
-        self.status = status
-        self.status_label.setText(status)
-        self.status_label.setStyleSheet(f"color: {color}; font-weight: 600;")
-        self.animate_status_change()
-    def animate_status_change(self):
-        animation = QPropertyAnimation(self, b"geometry")
-        animation.setDuration(200)
-        animation.setStartValue(self.geometry())
-        animation.setEndValue(self.geometry())
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        animation.start()
-
-class ProcessingThread(QThread):
-    """Background thread for processing images"""
-    processing_complete = pyqtSignal(dict)
-    processing_error = pyqtSignal(str)
-    progress_update = pyqtSignal(int)
-    
-    def __init__(self, front_image, back_image):
-        super().__init__()
-        self.front_image = front_image
-        self.back_image = back_image
-        
-    def run(self):
-        try:
-            # Step 1: Preprocess front cover (10%)
-            self.progress_update.emit(10)
-            # Convert numpy array to bytes for preprocessing
-            _, front_encoded = cv2.imencode('.jpg', self.front_image)
-            front_bytes = front_encoded.tobytes()
-            front_processed = preprocess_image(front_bytes)
-            
-            # Step 2: Preprocess back cover (20%)
-            self.progress_update.emit(20)
-            # Convert numpy array to bytes for preprocessing
-            _, back_encoded = cv2.imencode('.jpg', self.back_image)
-            back_bytes = back_encoded.tobytes()
-            back_processed = preprocess_image(back_bytes)
-            
-            # Step 3: Extract text from front cover (30%)
-            self.progress_update.emit(30)
-            # Save processed image to temp file
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_front:
-                cv2.imwrite(temp_front.name, front_processed)
-                front_result = extract_text_with_confidence(temp_front.name)
-            # Clean up temp file
-            os.unlink(temp_front.name)
-            
-            # Step 4: Extract text from back cover (40%)
-            self.progress_update.emit(40)
-            # Save processed image to temp file
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_back:
-                cv2.imwrite(temp_back.name, back_processed)
-                back_result = extract_text_with_confidence(temp_back.name)
-            # Clean up temp file
-            os.unlink(temp_back.name)
-            
-            # Step 5: Extract metadata from front cover (50%)
-            self.progress_update.emit(50)
-            front_metadata = extract_metadata_with_gemini(front_result["text"])
-            
-            # Step 6: Extract ISBNs from back cover (70%)
-            self.progress_update.emit(70)
-            isbns = extract_and_validate_isbns(back_result["text"])
-            
-            # Step 7: Combine metadata with confidence info (90%)
-            self.progress_update.emit(90)
-            final_metadata = metadata_combiner(front_metadata, isbns)
-            # Add confidence information
-            final_metadata["front_confidence"] = front_result.get("confidence", 0.0)
-            final_metadata["back_confidence"] = back_result.get("confidence", 0.0)
-            final_metadata["front_word_count"] = front_result.get("word_count", 0)
-            final_metadata["back_word_count"] = back_result.get("word_count", 0)
-            
-            # Step 8: Complete (100%)
-            self.progress_update.emit(100)
-            self.processing_complete.emit(final_metadata)
-            
-        except Exception as e:
-            self.processing_error.emit(str(e))
-
 class ModernCameraWidget(QWidget):
     """Modern camera widget with sleek dark mode design"""
     def __init__(self, parent=None):
@@ -1630,16 +1513,7 @@ class ModernBookAcquisitionApp(QMainWindow):
             "✅ Ready to process the next book.\n"
             "📸 You can now capture new images.")
 
-    def get_confidence_indicator(self, confidence):
-        """Get visual indicator for confidence level"""
-        if confidence >= 0.8:
-            return "🟢"  # Green - High confidence
-        elif confidence >= 0.6:
-            return "🟡"  # Yellow - Medium confidence
-        elif confidence >= 0.4:
-            return "🟠"  # Orange - Low confidence
-        else:
-            return "🔴"  # Red - Very low confidence
+
 
 # Enhanced GeminiProcessingThread with external API integration
 from PyQt6.QtCore import QThread, pyqtSignal
